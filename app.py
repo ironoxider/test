@@ -25,9 +25,8 @@ from flask import (
     url_for,
 )
 
+import app_settings
 import photo_extract
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 STATUSES = ["In Service", "In Storage", "In Repair", "Loaned Out", "Lost", "Retired"]
 
@@ -79,14 +78,18 @@ SORTABLE = {
 
 
 def create_app(test_config=None):
-    app = Flask(__name__)
-    app.config.update(
-        SECRET_KEY=os.environ.get("INVENTORY_SECRET_KEY", "dev-change-me"),
-        DATABASE=os.environ.get("INVENTORY_DB", os.path.join(BASE_DIR, "inventory.db")),
-        MAX_CONTENT_LENGTH=25 * 1024 * 1024,
+    app = Flask(
+        __name__,
+        template_folder=os.path.join(app_settings.RESOURCE_DIR, "templates"),
+        static_folder=os.path.join(app_settings.RESOURCE_DIR, "static"),
     )
+    app.config.update(DATABASE=app_settings.default_db_path(), MAX_CONTENT_LENGTH=25 * 1024 * 1024)
     if test_config:
         app.config.update(test_config)
+    os.makedirs(os.path.dirname(os.path.abspath(app.config["DATABASE"])), exist_ok=True)
+    app.config.setdefault("SETTINGS_PATH", app_settings.settings_path(app.config["DATABASE"]))
+    if not app.config.get("SECRET_KEY"):
+        app.config["SECRET_KEY"] = app_settings.secret_key(app.config["SETTINGS_PATH"])
 
     app.teardown_appcontext(close_db)
     with app.app_context():
@@ -97,7 +100,7 @@ def create_app(test_config=None):
         STATUSES=STATUSES,
         CATEGORIES=CATEGORIES,
         FIELD_LABELS=FIELD_LABELS,
-        ai_enabled=photo_extract.is_configured,
+        ai_enabled=lambda: photo_extract.is_configured(saved_api_key()),
         today=lambda: date.today().isoformat(),
     )
     return app
@@ -123,8 +126,14 @@ def close_db(_exc=None):
 
 
 def init_db():
-    with open(os.path.join(BASE_DIR, "schema.sql")) as f:
+    with open(os.path.join(app_settings.RESOURCE_DIR, "schema.sql")) as f:
         get_db().executescript(f.read())
+
+
+def saved_api_key():
+    from flask import current_app
+
+    return app_settings.load(current_app.config["SETTINGS_PATH"]).get("anthropic_api_key")
 
 
 def clean(value):
@@ -422,19 +431,52 @@ def register_routes(app):
 
     @app.route("/api/extract", methods=["POST"])
     def api_extract():
-        if not photo_extract.is_configured():
-            return jsonify(error="AI photo reading isn't set up. Set ANTHROPIC_API_KEY and "
-                                 "restart the app."), 503
+        api_key = saved_api_key()
+        if not photo_extract.is_configured(api_key):
+            return jsonify(error="AI photo reading isn't set up. Add an Anthropic API key "
+                                 "on the Settings page."), 503
         images = [
             (f.read(), f.mimetype)
             for f in request.files.getlist("photos")
             if f and f.filename
         ]
         try:
-            result = photo_extract.extract_device_info(images, CATEGORIES)
+            result = photo_extract.extract_device_info(images, CATEGORIES, api_key=api_key)
         except photo_extract.ExtractionError as e:
             return jsonify(error=str(e)), 400
         return jsonify(result)
+
+    @app.route("/settings", methods=["GET", "POST"])
+    def settings():
+        path = app.config["SETTINGS_PATH"]
+        if request.method == "POST":
+            changes = {"allow_network": bool(request.form.get("allow_network"))}
+            new_key = clean(request.form.get("anthropic_api_key"))
+            if request.form.get("remove_key"):
+                changes["anthropic_api_key"] = None
+            elif new_key:
+                if not new_key.startswith("sk-ant-"):
+                    flash("That doesn't look like an Anthropic API key (they start with sk-ant-).",
+                          "error")
+                    return redirect(url_for("settings"))
+                changes["anthropic_api_key"] = new_key
+            before = app_settings.load(path).get("allow_network", False)
+            app_settings.update(path, **changes)
+            msg = "Settings saved."
+            if changes["allow_network"] != before:
+                msg += " Close and reopen Device Inventory for the network change to take effect."
+            flash(msg, "success")
+            return redirect(url_for("settings"))
+        data = app_settings.load(path)
+        key = data.get("anthropic_api_key")
+        return render_template(
+            "settings.html",
+            key_hint=f"…{key[-4:]}" if key else None,
+            env_key=bool(os.environ.get("ANTHROPIC_API_KEY")),
+            allow_network=data.get("allow_network", False),
+            db_path=os.path.abspath(app.config["DATABASE"]),
+            network_urls=app.config.get("NETWORK_URLS", []),
+        )
 
     @app.route("/export.csv")
     def export_csv():

@@ -75,7 +75,7 @@ def client(tmp_path):
 def test_api_extract_not_configured(client, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     resp = client.post("/api/extract")
-    assert resp.status_code == 503 and "ANTHROPIC_API_KEY" in resp.get_json()["error"]
+    assert resp.status_code == 503 and "Settings" in resp.get_json()["error"]
     assert b"AI label reading is off" in client.get("/devices/new").data
 
 
@@ -83,7 +83,7 @@ def test_api_extract_success(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     seen = {}
 
-    def fake_extract(images, categories):
+    def fake_extract(images, categories, api_key=None):
         seen["images"] = images
         return {"fields": {"serial_number": "7XK2QW3"}, "notes": None}
 
@@ -100,3 +100,31 @@ def test_api_extract_error_is_json(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     resp = client.post("/api/extract", content_type="multipart/form-data", data={})
     assert resp.status_code == 400 and "No photos" in resp.get_json()["error"]
+
+
+def test_settings_saves_key_and_enables_ai(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    resp = client.post("/settings", data={"anthropic_api_key": "not-a-key"}, follow_redirects=True)
+    assert b"look like an Anthropic API key" in resp.data
+    resp = client.post("/settings", data={"anthropic_api_key": "sk-ant-test-1234"},
+                       follow_redirects=True)
+    assert b"Settings saved" in resp.data and "…1234".encode() in resp.data
+    assert b"sk-ant-test-1234" not in resp.data  # never echoed back
+    assert b"Read label with AI" in client.get("/devices/new").data
+
+    seen = {}
+    monkeypatch.setattr(photo_extract, "extract_device_info",
+                        lambda images, categories, api_key=None: seen.update(key=api_key)
+                        or {"fields": {}, "notes": None})
+    client.post("/api/extract", content_type="multipart/form-data",
+                data={"photos": (io.BytesIO(b"img"), "a.jpg", "image/jpeg")})
+    assert seen["key"] == "sk-ant-test-1234"
+
+    client.post("/settings", data={"remove_key": "1"})
+    assert b"AI label reading is off" in client.get("/devices/new").data
+
+
+def test_settings_network_toggle(client):
+    resp = client.post("/settings", data={"allow_network": "1"}, follow_redirects=True)
+    assert b"Close and reopen" in resp.data
+    assert b'name="allow_network" value="1" checked' in resp.data

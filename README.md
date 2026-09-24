@@ -21,7 +21,31 @@ is no database server to set up.
 - **CSV export and import**: export the current filtered view. When you import, a row whose asset
   tag already exists updates that device, and any other row adds a new one.
 
-## Setup
+## Download and run (no programming needed)
+
+1. On GitHub, open the repository's **Actions** tab and click the latest successful **Build app** run.
+   Under **Artifacts**, download the file for your computer:
+   - **Windows:** `DeviceInventory-windows`
+   - **Mac (M1/M2/M3/M4, 2020 or newer):** `DeviceInventory-mac-apple-silicon`
+   - **Linux:** `DeviceInventory-linux`
+2. Unzip the download. On a Mac there is a second zip inside, so double-click that one too.
+3. Double-click **DeviceInventory**. A small window opens showing the address, and your web browser
+   opens the app. **Keep that window open while you use it. Close it to stop the app.**
+
+The first time you open it, your computer may warn you, because the program isn't signed by a
+registered developer:
+
+- **Windows** ("Windows protected your PC"): click **More info**, then **Run anyway**.
+- **Mac** ("cannot be opened" or "Apple could not verify"): click **Done**, then open
+  **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to DeviceInventory.
+
+Your data is saved in **Documents/Device Inventory/inventory.db**. To back it up, copy that file
+somewhere safe. The **Settings** page in the app shows the exact location. Replacing the program with
+a newer version keeps your data.
+
+Intel Macs can't run the Mac download; use "Run from source" below instead.
+
+## Run from source
 
 Requires Python 3.9+.
 
@@ -29,23 +53,29 @@ Requires Python 3.9+.
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py
+python launcher.py               # opens your browser; or: python app.py (Flask dev server)
 ```
 
-Then open http://127.0.0.1:5000.
+When run from source, the data is stored in `inventory.db` next to `app.py`.
 
-The data is stored in `inventory.db` next to `app.py`. To back it up, copy that file.
+### Building the program yourself
+
+```bash
+pip install pyinstaller
+pyinstaller DeviceInventory.spec     # result is in dist/
+```
+
+The **Build app** GitHub Actions workflow does this for Windows, macOS and Linux on every push.
+Pushing a tag such as `v1.0.0` also puts the files on the repository's Releases page.
 
 ### Reading labels from photos (optional)
 
 Barcode scanning works with no setup. To have the AI read the printed label text as well:
 
 1. Create an API key at https://console.anthropic.com (this needs an account with billing set up).
-2. Set it before starting the app:
-   ```bash
-   export ANTHROPIC_API_KEY=sk-ant-...      # Windows PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."
-   python app.py
-   ```
+2. In the app, open **Settings**, paste the key and click **Save settings**. It takes effect straight away.
+   The key is saved in `settings.json` next to the database. (You can set the `ANTHROPIC_API_KEY`
+   environment variable instead.)
 
 How it works:
 
@@ -58,8 +88,9 @@ How it works:
 - Each barcode found gets buttons to use it as the serial number, model number or asset tag.
 - Best results: photograph the label straight on, fill the frame with it, and avoid glare. Add a
   second photo of the whole device if the label doesn't show the model name.
-- **Using a phone:** start the app with `INVENTORY_HOST=0.0.0.0` and open `http://<computer's IP>:5000`
-  on a phone on the same network. "Choose / take photos" then offers the camera.
+- **Using a phone:** on the **Settings** page, tick "Allow phones and other computers on this network"
+  and reopen the app. The window and the Settings page then show an address like `http://192.168.1.20:5000`
+  to open on a phone on the same Wi-Fi. "Choose / take photos" then offers the camera.
 
 The AI model defaults to `claude-opus-5`. Set `INVENTORY_AI_MODEL` to use another one.
 If a request is declined by the model's safety checks, it is automatically retried on a fallback model.
@@ -68,11 +99,12 @@ If a request is declined by the model's safety checks, it is automatically retri
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `INVENTORY_DB` | `./inventory.db` | Path to the SQLite database file |
-| `INVENTORY_HOST` | `127.0.0.1` | Address to listen on. Use `0.0.0.0` to allow other computers on your network |
+| `INVENTORY_DATA_DIR` | see above | Folder for the database and `settings.json` |
+| `INVENTORY_DB` | `<data dir>/inventory.db` | Path to the SQLite database file |
+| `INVENTORY_HOST` | `127.0.0.1` | Address to listen on. Overrides the Settings network option |
 | `INVENTORY_PORT` | `5000` | Port |
-| `INVENTORY_SECRET_KEY` | `dev-change-me` | Session signing key. Set it to a random value if you share the app |
-| `ANTHROPIC_API_KEY` | unset | Turns on AI label reading (see above) |
+| `INVENTORY_SECRET_KEY` | random, saved in `settings.json` | Session signing key |
+| `ANTHROPIC_API_KEY` | unset | API key for AI label reading, if not saved on the Settings page |
 | `INVENTORY_AI_MODEL` | `claude-opus-5` | Claude model used to read labels |
 | `INVENTORY_DEBUG` | unset | Set to `1` for Flask debug mode (only on your own machine) |
 

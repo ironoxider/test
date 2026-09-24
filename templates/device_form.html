@@ -19,7 +19,7 @@
     {% if ai_enabled() %}
       <button type="button" data-ai disabled>Read label with AI</button>
     {% else %}
-      <span class="muted">AI label reading is off (no <code>ANTHROPIC_API_KEY</code> set). See the README.</span>
+      <span class="muted">AI label reading is off. <a href="{{ url_for('settings') }}">Add an API key in Settings</a> to turn it on.</span>
     {% endif %}
   </div>
   <div class="pf-previews"></div>

@@ -1,6 +1,7 @@
 """Read device details (make, model, model number, serial) from photos using Claude.
 
-Requires an Anthropic API key in the ANTHROPIC_API_KEY environment variable.
+Requires an Anthropic API key, saved on the Settings page or set in the
+ANTHROPIC_API_KEY environment variable.
 """
 
 import base64
@@ -62,11 +63,11 @@ class ExtractionError(Exception):
     """A problem to show the user (bad input, API failure, refusal)."""
 
 
-def is_configured():
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+def is_configured(api_key=None):
+    return bool(api_key or os.environ.get("ANTHROPIC_API_KEY"))
 
 
-def extract_device_info(images, categories, client=None):
+def extract_device_info(images, categories, client=None, api_key=None):
     """Return a dict of device fields read from `images`.
 
     `images` is a list of (bytes, media_type) tuples.
@@ -91,7 +92,8 @@ def extract_device_info(images, categories, client=None):
         })
     content.append({"type": "text", "text": PROMPT})
 
-    client = client or anthropic.Anthropic(timeout=90.0)
+    # With no saved key, the SDK falls back to the ANTHROPIC_API_KEY environment variable.
+    client = client or anthropic.Anthropic(api_key=api_key or None, timeout=90.0)
     try:
         response = client.beta.messages.create(
             model=os.environ.get("INVENTORY_AI_MODEL", DEFAULT_MODEL),
@@ -105,7 +107,7 @@ def extract_device_info(images, categories, client=None):
             messages=[{"role": "user", "content": content}],
         )
     except anthropic.AuthenticationError:
-        raise ExtractionError("The Anthropic API key is invalid. Check ANTHROPIC_API_KEY.")
+        raise ExtractionError("The Anthropic API key is invalid. Check it on the Settings page.")
     except anthropic.PermissionDeniedError:
         raise ExtractionError("The Anthropic API key doesn't have access to this model.")
     except anthropic.RateLimitError:

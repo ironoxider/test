@@ -1,0 +1,84 @@
+name: Build app
+
+# Builds the double-click Device Inventory program for Windows, macOS and Linux.
+# Download the results from the run's "Artifacts" section. Pushing a tag such as
+# v1.0.0 also publishes them on the repository's Releases page.
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+          - os: macos-latest
+            label: mac-apple-silicon
+          - os: ubuntu-latest
+            label: linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller pytest
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Build
+        run: pyinstaller --noconfirm DeviceInventory.spec
+
+      - name: Check the built program starts
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then ./dist/DeviceInventory.exe --selftest; else ./dist/DeviceInventory --selftest; fi
+
+      - name: Package
+        run: |
+          mkdir out
+          case "$RUNNER_OS" in
+            Windows) cp dist/DeviceInventory.exe out/DeviceInventory.exe ;;
+            # Zip so the "executable" permission survives the download.
+            macOS)   ditto -c -k --keepParent dist/DeviceInventory out/DeviceInventory-mac.zip ;;
+            Linux)   (cd dist && zip -q ../out/DeviceInventory-linux.zip DeviceInventory) ;;
+          esac
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeviceInventory-${{ matrix.label }}
+          path: out/*
+          retention-days: 90
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Name files per platform
+        run: |
+          mkdir release
+          cp artifacts/DeviceInventory-windows/DeviceInventory.exe release/DeviceInventory-windows.exe
+          cp artifacts/DeviceInventory-mac-apple-silicon/DeviceInventory-mac.zip release/
+          cp artifacts/DeviceInventory-linux/DeviceInventory-linux.zip release/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*

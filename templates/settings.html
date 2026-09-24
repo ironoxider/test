@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Settings · Device Inventory{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post" class="device-form" autocomplete="off">
+  <fieldset>
+    <legend>AI label reading</legend>
+    <p class="wide muted">
+      Lets "Read label with AI" fill in device details from photos. Create a key at
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>
+      (needs billing set up; typically 1–5¢ per photo read).
+    </p>
+    <p class="wide">
+      {% if key_hint %}Status: <strong>on</strong>. A key ending in <code>{{ key_hint }}</code> is saved.
+      {% elif env_key %}Status: <strong>on</strong>. Using the key from the ANTHROPIC_API_KEY environment variable.
+      {% else %}Status: <strong>off</strong>. No key saved.{% endif %}
+    </p>
+    <label>{{ 'Replace key' if key_hint else 'API key' }}
+      <input type="password" name="anthropic_api_key" placeholder="sk-ant-…" spellcheck="false">
+    </label>
+    {% if key_hint %}
+    <label class="checkbox"><input type="checkbox" name="remove_key" value="1"> Remove saved key</label>
+    {% endif %}
+  </fieldset>
+  <fieldset>
+    <legend>Phones &amp; other computers</legend>
+    <label class="checkbox wide">
+      <input type="checkbox" name="allow_network" value="1" {% if allow_network %}checked{% endif %}>
+      Allow phones and other computers on this network to open Device Inventory
+    </label>
+    <p class="wide muted">
+      Use this to take label photos with a phone. Anyone on the same network can then view and change the
+      inventory, because there is no login, so only turn it on for a trusted network. Close and reopen
+      Device Inventory after changing it.
+    </p>
+    {% if network_urls %}
+    <p class="wide">On your phone, open: {% for u in network_urls %}<code>{{ u }}</code>{% if not loop.last %} or {% endif %}{% endfor %}</p>
+    {% endif %}
+  </fieldset>
+  <fieldset>
+    <legend>Your data</legend>
+    <p class="wide">All devices are stored in this file. Copy it somewhere safe to back up:<br>
+      <code class="mono">{{ db_path }}</code></p>
+  </fieldset>
+  <div class="actions"><button type="submit">Save settings</button></div>
+</form>
+{% endblock %}

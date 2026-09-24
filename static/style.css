@@ -84,3 +84,7 @@ button.small { padding: 3px 9px; font-size: 0.85em; }
 .pf-barcode code, .pf-conflict code { font-family: ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 .pf-match { color: var(--ok); font-size: 0.9em; }
 .autofilled { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--panel)); }
+.device-form .wide { grid-column: 1 / -1; margin: 0; }
+.device-form label.checkbox { display: flex; gap: 8px; align-items: center; color: var(--text); }
+.device-form label.checkbox input { width: auto; }
+code.mono { overflow-wrap: anywhere; }
