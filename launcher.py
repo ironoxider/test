@@ -123,6 +123,14 @@ if __name__ == "__main__":
         code = main()
     except KeyboardInterrupt:
         code = 0
+    except ModuleNotFoundError as e:
+        print(f"\nDevice Inventory can't start: the Python add-on '{e.name}' isn't installed.")
+        if os.name == "nt":
+            print('Double-click "Start Device Inventory.bat" instead; it installs everything automatically.')
+        else:
+            print("Run ./start.sh instead (on a Mac, double-click \"Start Device Inventory.command\");")
+            print("it installs everything automatically.")
+        code = 1
     except Exception:
         traceback.print_exc()
         code = 1

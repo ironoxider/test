@@ -43,20 +43,26 @@ Your data is saved in **Documents/Device Inventory/inventory.db**. To back it up
 somewhere safe. The **Settings** page in the app shows the exact location. Replacing the program with
 a newer version keeps your data.
 
-Intel Macs can't run the Mac download; use "Run from source" below instead.
+Intel Macs and Chromebooks can't run the downloads; use "Run from source" below instead.
 
 ## Run from source
 
-Requires Python 3.9+.
+Use this if the download doesn't work on your computer (for example on a Chromebook or an Intel Mac).
+You need Python 3.9 or newer ([python.org/downloads](https://www.python.org/downloads/); on Windows,
+tick **"Add python.exe to PATH"** in the installer).
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python launcher.py               # opens your browser; or: python app.py (Flask dev server)
-```
+1. On GitHub, click **Code → Download ZIP** and unzip it.
+2. Start the app with the start script for your computer. The first run installs everything the app
+   needs (about a minute); after that it starts in a few seconds.
+   - **Windows:** double-click **Start Device Inventory.bat**
+   - **Mac:** double-click **Start Device Inventory.command** (the first time, right-click it and choose **Open**)
+   - **Chromebook / Linux:** in the Terminal, go to the folder and run `./start.sh`.
+     If it says the Python environment couldn't be created, run `sudo apt install python3-venv` first.
 
-When run from source, the data is stored in `inventory.db` next to `app.py`.
+The start scripts install the app's add-ons into a private `.venv` folder, so you don't need to run
+`pip` yourself. Running `python app.py` directly without doing that causes "No module named ..." errors.
+
+When run from source, the data is stored in `inventory.db` in the app's folder.
 
 ### Building the program yourself
 

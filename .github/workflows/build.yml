@@ -65,6 +65,41 @@ jobs:
           path: out/*
           retention-days: 90
 
+  # Checks the "run from source" start scripts work on a machine with only Python installed.
+  start-scripts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      INVENTORY_NO_BROWSER: "1"
+      INVENTORY_PORT: "5070"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Start the app with its start script
+        run: |
+          case "$RUNNER_OS" in
+            Windows) cmd //c "Start Device Inventory.bat" > start.log 2>&1 < /dev/null & ;;
+            macOS)   "./Start Device Inventory.command" > start.log 2>&1 < /dev/null & ;;
+            Linux)   ./start.sh > start.log 2>&1 < /dev/null & ;;
+          esac
+          for i in $(seq 1 180); do
+            if curl -sf -o /dev/null http://127.0.0.1:5070/; then
+              echo "App answered after ${i}s"; cat start.log; exit 0
+            fi
+            sleep 1
+          done
+          echo "App did not start:"; cat start.log; exit 1
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
