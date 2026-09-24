@@ -18,11 +18,14 @@ from flask import (
     abort,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
     url_for,
 )
+
+import photo_extract
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -80,7 +83,7 @@ def create_app(test_config=None):
     app.config.update(
         SECRET_KEY=os.environ.get("INVENTORY_SECRET_KEY", "dev-change-me"),
         DATABASE=os.environ.get("INVENTORY_DB", os.path.join(BASE_DIR, "inventory.db")),
-        MAX_CONTENT_LENGTH=5 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=25 * 1024 * 1024,
     )
     if test_config:
         app.config.update(test_config)
@@ -94,6 +97,7 @@ def create_app(test_config=None):
         STATUSES=STATUSES,
         CATEGORIES=CATEGORIES,
         FIELD_LABELS=FIELD_LABELS,
+        ai_enabled=photo_extract.is_configured,
         today=lambda: date.today().isoformat(),
     )
     return app
@@ -415,6 +419,22 @@ def register_routes(app):
             db.commit()
             flash("Location deleted.", "success")
         return redirect(url_for("locations"))
+
+    @app.route("/api/extract", methods=["POST"])
+    def api_extract():
+        if not photo_extract.is_configured():
+            return jsonify(error="AI photo reading isn't set up. Set ANTHROPIC_API_KEY and "
+                                 "restart the app."), 503
+        images = [
+            (f.read(), f.mimetype)
+            for f in request.files.getlist("photos")
+            if f and f.filename
+        ]
+        try:
+            result = photo_extract.extract_device_info(images, CATEGORIES)
+        except photo_extract.ExtractionError as e:
+            return jsonify(error=str(e)), 400
+        return jsonify(result)
 
     @app.route("/export.csv")
     def export_csv():

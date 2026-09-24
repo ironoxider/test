@@ -1,10 +1,33 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }} · Device Inventory{% endblock %}
+{% block title %}{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }} · Device Inventory<script src="{{ url_for('static', filename='vendor/zxing.min.js') }}"></script>
+<script src="{{ url_for('static', filename='photo-fill.js') }}"></script>
+{% endblock %}
 {% block content %}
 <h1>{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }}</h1>
 {% if errors %}
   <div class="flash error"><ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>
 {% endif %}
+<section id="photo-fill" class="photo-fill" data-extract-url="{{ url_for('api_extract') }}">
+  <h2>Fill from photos</h2>
+  <p class="muted">Take or choose up to 4 photos: the label/sticker (best) and optionally the device itself.
+    Barcodes are read automatically{% if ai_enabled() %}; the AI can read the printed text too{% endif %}.</p>
+  <div class="pf-controls">
+    <label class="button secondary pf-pick">
+      Choose / take photos
+      <input type="file" accept="image/*" multiple hidden>
+    </label>
+    {% if ai_enabled() %}
+      <button type="button" data-ai disabled>Read label with AI</button>
+    {% else %}
+      <span class="muted">AI label reading is off (no <code>ANTHROPIC_API_KEY</code> set). See the README.</span>
+    {% endif %}
+  </div>
+  <div class="pf-previews"></div>
+  <p class="pf-status" role="status" aria-live="polite"></p>
+  <div class="pf-conflicts"></div>
+  <div class="pf-barcodes"></div>
+</section>
+
 <form method="post" class="device-form">
   <fieldset>
     <legend>Identification</legend>
@@ -48,4 +71,6 @@
     <a href="{{ url_for('device_view', device_id=device.id) if not new else url_for('index') }}">Cancel</a>
   </div>
 </form>
+<script src="{{ url_for('static', filename='vendor/zxing.min.js') }}"></script>
+<script src="{{ url_for('static', filename='photo-fill.js') }}"></script>
 {% endblock %}
