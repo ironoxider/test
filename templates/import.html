@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Import · Device Inventory{% endblock %}
+{% block content %}
+<h1>Import from CSV</h1>
+{% if result %}
+  <div class="flash {{ 'error' if result.errors else 'success' }}">
+    Added {{ result.added }}, updated {{ result.updated }}{% if result.errors %}, {{ result.errors|length }} row(s) skipped:{% endif %}
+    {% if result.errors %}<ul>{% for e in result.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+{% endif %}
+<form method="post" enctype="multipart/form-data" class="inline-form">
+  <input type="file" name="file" accept=".csv,text/csv" required>
+  <button type="submit">Import</button>
+</form>
+<p>The first row must be a header. Recognised columns (any order, only <code>asset_tag</code> is required):</p>
+<p><code>{{ columns|join(', ') }}</code></p>
+<ul>
+  <li>If a row's asset tag already exists, that device is <strong>updated</strong>; blank cells leave existing values unchanged.</li>
+  <li>Locations are matched by name and created automatically if they don't exist.</li>
+  <li>Dates must be <code>YYYY-MM-DD</code>. Status must be one of: {{ STATUSES|join(', ') }}.</li>
+  <li>Tip: <a href="{{ url_for('export_csv') }}">export</a> first to get a file in the right format.</li>
+</ul>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ location.name }} · Device Inventory{% endblock %}
+{% block content %}
+<h1>Edit location</h1>
+<form method="post" class="device-form">
+  <fieldset>
+    <label>Name *<input name="name" value="{{ location.name }}" required></label>
+    <label>Building<input name="building" value="{{ location.building or '' }}"></label>
+    <label>Room<input name="room" value="{{ location.room or '' }}"></label>
+    <label>Notes<input name="notes" value="{{ location.notes or '' }}"></label>
+  </fieldset>
+  <div class="actions">
+    <button type="submit">Save</button>
+    <a href="{{ url_for('locations') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

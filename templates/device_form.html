@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }} · Device Inventory{% endblock %}
+{% block content %}
+<h1>{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }}</h1>
+{% if errors %}
+  <div class="flash error"><ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>
+{% endif %}
+<form method="post" class="device-form">
+  <fieldset>
+    <legend>Identification</legend>
+    <label>Asset tag *<input name="asset_tag" value="{{ device.asset_tag or '' }}" required></label>
+    <label>Name *<input name="name" value="{{ device.name or '' }}" placeholder="e.g. Room 204 teacher laptop" required></label>
+    <label>Category
+      <input name="category" list="categories" value="{{ device.category or '' }}">
+      <datalist id="categories">{% for c in CATEGORIES %}<option value="{{ c }}">{% endfor %}</datalist>
+    </label>
+    <label>Status
+      <select name="status">{% for s in STATUSES %}<option {% if device.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+    </label>
+  </fieldset>
+  <fieldset>
+    <legend>Hardware</legend>
+    <label>Manufacturer<input name="manufacturer" value="{{ device.manufacturer or '' }}" placeholder="e.g. Dell"></label>
+    <label>Model<input name="model" value="{{ device.model or '' }}" placeholder="e.g. Latitude 5440"></label>
+    <label>Model number<input name="model_number" value="{{ device.model_number or '' }}" placeholder="e.g. P169G"></label>
+    <label>Serial number<input name="serial_number" value="{{ device.serial_number or '' }}"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Location &amp; assignment</legend>
+    <label>Location
+      <select name="location_id">
+        <option value="">(None)</option>
+        {% for l in locations %}<option value="{{ l.id }}" {% if device.location_id == l.id %}selected{% endif %}>{{ l.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>…or new location<input name="new_location" placeholder="Type to create a new location"></label>
+    <label>Assigned to<input name="assigned_to" value="{{ device.assigned_to or '' }}" placeholder="Person or department"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Purchase &amp; warranty</legend>
+    <label>Purchase date<input type="date" name="purchase_date" value="{{ device.purchase_date or '' }}"></label>
+    <label>Warranty expires<input type="date" name="warranty_expires" value="{{ device.warranty_expires or '' }}"></label>
+  </fieldset>
+  <label class="wide">Notes<textarea name="notes" rows="4">{{ device.notes or '' }}</textarea></label>
+  <div class="actions">
+    <button type="submit">Save</button>
+    {% if new %}<button type="submit" name="add_another" value="1" class="secondary">Save &amp; add another</button>{% endif %}
+    <a href="{{ url_for('device_view', device_id=device.id) if not new else url_for('index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

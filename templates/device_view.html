@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ device.asset_tag }} · Device Inventory{% endblock %}
+{% block content %}
+<div class="heading">
+  <h1>{{ device.asset_tag }} <small>{{ device.name }}</small></h1>
+  <div class="actions">
+    <a class="button" href="{{ url_for('device_edit', device_id=device.id) }}">Edit</a>
+    <form method="post" action="{{ url_for('device_delete', device_id=device.id) }}" onsubmit="return confirm('Delete {{ device.asset_tag }}? This cannot be undone.');">
+      <button type="submit" class="danger">Delete</button>
+    </form>
+  </div>
+</div>
+<dl class="details">
+  {% for field, label in [('category','Category'),('status','Status'),('manufacturer','Manufacturer'),('model','Model'),('model_number','Model Number'),('serial_number','Serial Number'),('location','Location'),('assigned_to','Assigned To'),('purchase_date','Purchase Date'),('warranty_expires','Warranty Expires')] %}
+    <dt>{{ label }}</dt><dd>{{ device[field] or '—' }}</dd>
+  {% endfor %}
+  <dt>Notes</dt><dd class="notes">{{ device.notes or '—' }}</dd>
+  <dt>Added</dt><dd>{{ device.created_at }} UTC</dd>
+  <dt>Last updated</dt><dd>{{ device.updated_at }} UTC</dd>
+</dl>
+
+<h2>History</h2>
+{% if history %}
+<table class="history">
+  <thead><tr><th>When (UTC)</th><th>Change</th></tr></thead>
+  <tbody>
+  {% for h in history %}
+    <tr>
+      <td>{{ h.changed_at }}</td>
+      <td>
+        {% if h.field == 'created' %}Added to inventory{% if h.new_value %} at {{ h.new_value }}{% endif %}
+        {% else %}<strong>{{ FIELD_LABELS.get(h.field, h.field) }}</strong>: {{ h.old_value or '(blank)' }} → {{ h.new_value or '(blank)' }}{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">No history yet.</p>{% endif %}
+{% endblock %}

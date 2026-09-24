@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% macro sort_link(field, label) -%}
+  {%- set active = args.get('sort', 'asset_tag') == field -%}
+  {%- set desc = active and args.get('dir') != 'desc' -%}
+  {%- set params = dict(args) -%}
+  {%- set _ = params.update(sort=field, dir='desc' if desc else 'asc') -%}
+  <a href="{{ url_for('index', **params) }}">{{ label }}{% if active %} {{ '▼' if args.get('dir') == 'desc' else '▲' }}{% endif %}</a>
+{%- endmacro %}
+{% block content %}
+<section class="stats">
+  <div><strong>{{ stats.total or 0 }}</strong><span>Total devices</span></div>
+  <div><strong>{{ stats.in_service or 0 }}</strong><span>In service</span></div>
+  <div><strong>{{ stats.in_repair or 0 }}</strong><span>In repair</span></div>
+  <div><strong>{{ stats.out_of_warranty or 0 }}</strong><span>Out of warranty</span></div>
+</section>
+
+<form class="filters" method="get">
+  <input type="search" name="q" value="{{ args.get('q', '') }}" placeholder="Search tag, name, model, serial, person…" autofocus>
+  <select name="location">
+    <option value="">All locations</option>
+    <option value="none" {% if args.get('location') == 'none' %}selected{% endif %}>(No location)</option>
+    {% for l in locations %}
+      <option value="{{ l.id }}" {% if args.get('location') == l.id|string %}selected{% endif %}>{{ l.name }}</option>
+    {% endfor %}
+  </select>
+  <select name="category">
+    <option value="">All categories</option>
+    {% for c in CATEGORIES %}<option {% if args.get('category') == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="status">
+    <option value="">All statuses</option>
+    {% for s in STATUSES %}<option {% if args.get('status') == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+  <a href="{{ url_for('index') }}">Clear</a>
+  <a class="right" href="{{ url_for('export_csv', **args) }}">Export CSV</a>
+</form>
+
+{% if devices %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>{{ sort_link('asset_tag', 'Asset Tag') }}</th>
+      <th>{{ sort_link('name', 'Name') }}</th>
+      <th>{{ sort_link('category', 'Category') }}</th>
+      <th>{{ sort_link('model', 'Make / Model') }}</th>
+      <th>{{ sort_link('model_number', 'Model #') }}</th>
+      <th>Serial #</th>
+      <th>{{ sort_link('location', 'Location') }}</th>
+      <th>{{ sort_link('assigned_to', 'Assigned To') }}</th>
+      <th>{{ sort_link('status', 'Status') }}</th>
+      <th>{{ sort_link('warranty_expires', 'Warranty') }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in devices %}
+    <tr>
+      <td><a href="{{ url_for('device_view', device_id=d.id) }}">{{ d.asset_tag }}</a></td>
+      <td>{{ d.name }}</td>
+      <td>{{ d.category or '' }}</td>
+      <td>{{ [d.manufacturer, d.model]|select|join(' ') }}</td>
+      <td>{{ d.model_number or '' }}</td>
+      <td class="mono">{{ d.serial_number or '' }}</td>
+      <td>{{ d.location or '' }}</td>
+      <td>{{ d.assigned_to or '' }}</td>
+      <td><span class="badge status-{{ d.status|lower|replace(' ', '-') }}">{{ d.status }}</span></td>
+      <td class="{% if d.warranty_expires and d.warranty_expires < today() %}expired{% endif %}">{{ d.warranty_expires or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted">{{ devices|length }} device(s) shown.</p>
+{% else %}
+<p class="empty">No devices found. <a href="{{ url_for('device_new') }}">Add one</a> or <a href="{{ url_for('import_csv') }}">import a CSV</a>.</p>
+{% endif %}
+{% endblock %}

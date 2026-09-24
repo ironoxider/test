@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Locations · Device Inventory{% endblock %}
+{% block content %}
+<h1>Locations</h1>
+<form method="post" class="inline-form">
+  <input name="name" placeholder="Name (e.g. Room 204)" required>
+  <input name="building" placeholder="Building">
+  <input name="room" placeholder="Room">
+  <input name="notes" placeholder="Notes">
+  <button type="submit">Add location</button>
+</form>
+{% if locations %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Name</th><th>Building</th><th>Room</th><th>Notes</th><th>Devices</th><th></th></tr></thead>
+  <tbody>
+  {% for l in locations %}
+    <tr>
+      <td>{{ l.name }}</td>
+      <td>{{ l.building or '' }}</td>
+      <td>{{ l.room or '' }}</td>
+      <td>{{ l.notes or '' }}</td>
+      <td><a href="{{ url_for('index', location=l.id) }}">{{ l.device_count }}</a></td>
+      <td class="row-actions">
+        <a href="{{ url_for('location_edit', location_id=l.id) }}">Edit</a>
+        {% if not l.device_count %}
+        <form method="post" action="{{ url_for('location_delete', location_id=l.id) }}" onsubmit="return confirm('Delete {{ l.name }}?');">
+          <button type="submit" class="link danger">Delete</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}<p class="empty">No locations yet. Add one above, or create them while adding devices.</p>{% endif %}
+{% endblock %}
