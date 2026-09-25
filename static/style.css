@@ -103,3 +103,4 @@ code.mono { overflow-wrap: anywhere; }
 .move-form { display: flex; gap: 4px; margin: 0; }
 td.wrap { white-space: normal; min-width: 90px; }
 th, td { padding: 8px 8px; }
+.app-footer { max-width: 1400px; margin: 0 auto; padding: 0 16px 24px; color: var(--muted); font-size: 0.85em; }

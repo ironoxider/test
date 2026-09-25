@@ -5,6 +5,7 @@ from source with:  python launcher.py
 """
 
 import os
+import re
 import socket
 import sys
 import tempfile
@@ -31,13 +32,21 @@ def port_free(host, port):
             return False
 
 
-def already_running(port):
-    """True if Device Inventory is already answering on this port."""
+def running_version(port):
+    """Version of the Device Inventory answering on this port.
+
+    None if nothing (or something else) is there; "" for versions older than 1.4,
+    which didn't report a version.
+    """
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/settings", timeout=2) as resp:
-            return APP_NAME.encode() in resp.read(4096)
+            page = resp.read(4096).decode("utf-8", "replace")
     except Exception:
-        return False
+        return None
+    if APP_NAME not in page:
+        return None
+    match = re.search(r'<meta name="app-version" content="([^"]*)"', page)
+    return match.group(1) if match else ""
 
 
 def lan_addresses():
@@ -86,14 +95,18 @@ def main():
     host = os.environ.get("INVENTORY_HOST") or ("0.0.0.0" if allow_network else "127.0.0.1")
 
     port = int(os.environ.get("INVENTORY_PORT", FIRST_PORT))
+    older_copy = None
     for candidate in range(port, port + 20):
         if port_free(host, candidate):
             port = candidate
             break
-        if already_running(candidate):
+        version = running_version(candidate)
+        if version == app_settings.APP_VERSION:
             print(f"{APP_NAME} is already running. Opening it in your browser.")
             webbrowser.open(f"http://127.0.0.1:{candidate}/")
             return 0
+        if version is not None and older_copy is None:
+            older_copy = (candidate, version or "an older version")
     else:
         print(f"Couldn't find a free port between {port} and {port + 19}.")
         return 1
@@ -102,8 +115,15 @@ def main():
     network_urls = [f"http://{a}:{port}/" for a in lan_addresses()] if host == "0.0.0.0" else []
     app.config["NETWORK_URLS"] = network_urls
 
+    if older_copy:
+        print("!" * 60)
+        print(f" A different copy of {APP_NAME} ({older_copy[1]}) is still running")
+        print(f" at http://127.0.0.1:{older_copy[0]}/ - its window may be minimized.")
+        print(" Close that window so you don't end up using the old one.")
+        print("!" * 60)
+        print()
     print("=" * 60)
-    print(f" {APP_NAME} is running.")
+    print(f" {APP_NAME} {app_settings.APP_VERSION} is running.")
     print(f" Open in your browser: {local_url}")
     for url in network_urls:
         print(f" On a phone on the same network: {url}")

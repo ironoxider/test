@@ -52,6 +52,10 @@ a newer version keeps your data.
 
 Intel Macs and Chromebooks can't run the downloads; use "Run from source" below instead.
 
+**Which version am I running?** The version number is at the bottom of every page. If you still see an old
+version after updating, an older copy is probably still running: close every Device Inventory window, then
+open the new one. (A new version also warns you in its window when an older copy is still running.)
+
 ## Run from source
 
 Use this if the download doesn't work on your computer (for example on a Chromebook or an Intel Mac).

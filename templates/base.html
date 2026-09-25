@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="app-version" content="{{ APP_VERSION }}">
   <title>{% block title %}Device Inventory{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -24,5 +25,6 @@
     {% endfor %}
     {% block content %}{% endblock %}
   </main>
+  <footer class="app-footer">Device Inventory version {{ APP_VERSION }}</footer>
 </body>
 </html>

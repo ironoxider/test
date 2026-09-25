@@ -117,6 +117,7 @@ def create_app(test_config=None):
     app.jinja_env.globals.update(
         FIELD_LABELS=FIELD_LABELS,
         NEW_OPTION=NEW_OPTION,
+        APP_VERSION=app_settings.APP_VERSION,
         ai_enabled=lambda: photo_extract.is_configured(saved_api_key()),
         today=lambda: date.today().isoformat(),
         lifespan_years=lambda: int(app_setting("lifespan_years", DEFAULT_LIFESPAN_YEARS)),
