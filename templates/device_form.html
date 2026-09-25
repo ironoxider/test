@@ -1,7 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }} · Device Inventory<script src="{{ url_for('static', filename='vendor/zxing.min.js') }}"></script>
-<script src="{{ url_for('static', filename='photo-fill.js') }}"></script>
-{% endblock %}
+{% block title %}{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }} · Device Inventory{% endblock %}
 {% block content %}
 <h1>{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }}</h1>
 {% if errors %}
@@ -35,12 +33,21 @@
     <label>Asset tag *<input name="asset_tag" value="{{ device.asset_tag or '' }}" required></label>
     <label>Name *<input name="name" value="{{ device.name or '' }}" placeholder="e.g. Room 204 teacher laptop" required></label>
     <label>Category
-      <input name="category" list="categories" value="{{ device.category or '' }}">
-      <datalist id="categories">{% for c in CATEGORIES %}<option value="{{ c }}">{% endfor %}</datalist>
+      <select name="category" data-new-option="category">
+        <option value="">(None)</option>
+        {% for c in CATEGORIES %}<option {% if device.category == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        {% if device.category and device.category not in CATEGORIES %}<option selected>{{ device.category }}</option>{% endif %}
+        <option value="{{ NEW_OPTION }}">+ Add new…</option>
+      </select>
     </label>
     <label>Status
-      <select name="status">{% for s in STATUSES %}<option {% if device.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+      <select name="status" data-new-option="status">
+        {% for s in STATUSES %}<option {% if device.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        {% if device.status and device.status not in STATUSES %}<option selected>{{ device.status }}</option>{% endif %}
+        <option value="{{ NEW_OPTION }}">+ Add new…</option>
+      </select>
     </label>
+    <p class="wide muted small-note"><a href="{{ url_for('lists') }}" target="_blank">Edit the category and status lists</a></p>
   </fieldset>
   <fieldset>
     <legend>Hardware</legend>
@@ -48,6 +55,7 @@
     <label>Model<input name="model" value="{{ device.model or '' }}" placeholder="e.g. Latitude 5440"></label>
     <label>Model number<input name="model_number" value="{{ device.model_number or '' }}" placeholder="e.g. P169G"></label>
     <label>Serial number<input name="serial_number" value="{{ device.serial_number or '' }}"></label>
+    <label>Manufacture date<input type="date" name="manufacture_date" value="{{ device.manufacture_date or '' }}"></label>
   </fieldset>
   <fieldset>
     <legend>Location &amp; assignment</legend>
@@ -58,12 +66,23 @@
       </select>
     </label>
     <label>…or new location<input name="new_location" placeholder="Type to create a new location"></label>
-    <label>Assigned to<input name="assigned_to" value="{{ device.assigned_to or '' }}" placeholder="Person or department"></label>
+    <label>Assigned to
+      <input name="assigned_to" list="people" value="{{ device.assigned_to or '' }}"
+             placeholder="Pick from the list or type a new name" autocomplete="off">
+      <datalist id="people">{% for p in people %}<option value="{{ p }}">{% endfor %}</datalist>
+    </label>
   </fieldset>
   <fieldset>
-    <legend>Purchase &amp; warranty</legend>
+    <legend>Purchase, warranty &amp; replacement</legend>
     <label>Purchase date<input type="date" name="purchase_date" value="{{ device.purchase_date or '' }}"></label>
     <label>Warranty expires<input type="date" name="warranty_expires" value="{{ device.warranty_expires or '' }}"></label>
+    <label>Replace by (end of life)
+      <input type="date" name="replacement_date" value="{{ device.replacement_date or '' }}"
+             data-lifespan-years="{{ lifespan_years() }}">
+    </label>
+    <p class="wide muted small-note">Replace by fills in automatically as {{ lifespan_years() }} years after the purchase date
+      (or the manufacture date if there's no purchase date). You can change it, or change the
+      {{ lifespan_years() }} years in <a href="{{ url_for('settings') }}" target="_blank">Settings</a>.</p>
   </fieldset>
   <label class="wide">Notes<textarea name="notes" rows="4">{{ device.notes or '' }}</textarea></label>
   <div class="actions">
@@ -74,4 +93,5 @@
 </form>
 <script src="{{ url_for('static', filename='vendor/zxing.min.js') }}"></script>
 <script src="{{ url_for('static', filename='photo-fill.js') }}"></script>
+<script src="{{ url_for('static', filename='device-form.js') }}"></script>
 {% endblock %}

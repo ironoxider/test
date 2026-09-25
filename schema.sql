@@ -15,11 +15,13 @@ CREATE TABLE IF NOT EXISTS devices (
     model            TEXT,
     model_number     TEXT,
     serial_number    TEXT,
+    manufacture_date TEXT,
     location_id      INTEGER REFERENCES locations(id) ON DELETE SET NULL,
     assigned_to      TEXT,
     status           TEXT NOT NULL DEFAULT 'In Service',
     purchase_date    TEXT,
     warranty_expires TEXT,
+    replacement_date TEXT,
     notes            TEXT,
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
@@ -37,3 +39,12 @@ CREATE TABLE IF NOT EXISTS device_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_history_device ON device_history(device_id);
+
+-- Choices for the category and status drop-downs (managed on the Lists page).
+CREATE TABLE IF NOT EXISTS options (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT NOT NULL CHECK (kind IN ('category', 'status')),
+    name       TEXT NOT NULL COLLATE NOCASE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (kind, name)
+);

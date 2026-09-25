@@ -7,13 +7,20 @@ is no database server to set up.
 ## Features
 
 - **Devices**: asset tag, name, category, manufacturer, model, model number, serial number,
-  location, assigned-to, status, purchase date, warranty expiry, notes
+  manufacture date, location, assigned-to, status, purchase date, warranty expiry, replacement date, notes
+- **Drop-downs you control**: the category and status lists are managed on the **Lists** page (add, rename,
+  reorder, remove), or add a new entry straight from the device form with "+ Add new…". "Assigned to"
+  suggests everyone you've entered before, and you can still type a new name.
+- **Replacement reminders**: each device gets a "Replace by" date, 3 years after its purchase date
+  (or manufacture date) unless you change it. The Devices page warns about devices that are overdue or due
+  within 90 days. Both numbers can be changed in Settings.
 - **Locations**: add, rename, or delete them (a location that still has devices can't be deleted).
   You can also create a new location straight from the device form.
 - **Search and filter**: search across tag, name, model, model number, serial, person, notes and
   location. Filter by location, category and status, and sort by any column.
 - **History**: every change to a device is logged (for example "Location: Room 204 → IT Office").
-- **Dashboard counts**: total devices, in service, in repair, and out of warranty.
+- **Dashboard counts**: total devices, a count per status, out of warranty, and due for replacement.
+  Click a count to see those devices.
 - **Fill from photos**: on the Add/Edit device form, take or choose photos of the device label.
   Barcodes are read right in the browser (free, and works offline). If an Anthropic API key is set,
   **Read label with AI** also reads the printed text and fills in the manufacturer, model, model number,
@@ -124,11 +131,12 @@ If a request is declined by the model's safety checks, it is automatically retri
 Columns, in any order (only `asset_tag` is required; headers like `Asset Tag` also work):
 
 ```
-asset_tag,name,category,manufacturer,model,model_number,serial_number,location,assigned_to,status,purchase_date,warranty_expires,notes
+asset_tag,name,category,manufacturer,model,model_number,serial_number,manufacture_date,location,assigned_to,status,purchase_date,warranty_expires,replacement_date,notes
 ```
 
-Dates use `YYYY-MM-DD`. Status must be one of: In Service, In Storage, In Repair, Loaned Out,
-Lost, Retired (upper/lower case doesn't matter).
+Dates use `YYYY-MM-DD`. Status must be one of the statuses on the Lists page (upper/lower case doesn't
+matter). A category that isn't on the list yet is added to it. If `replacement_date` is blank, it's filled in
+from the purchase or manufacture date.
 
 ## Tests
 

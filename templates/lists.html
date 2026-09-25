@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Lists · Device Inventory{% endblock %}
+{% block content %}
+<h1>Categories &amp; statuses</h1>
+<p class="muted">These are the choices in the Category and Status drop-downs. The order here is the order in
+  the drop-downs; the first status is the default for new devices. Renaming an entry also updates every device
+  that uses it. An entry can only be removed when no device uses it.</p>
+{% for section in sections %}
+<section class="list-section" id="{{ section.kind }}">
+  <h2>{{ section.title }}</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Name</th><th>Devices</th><th>Order</th><th></th></tr></thead>
+    <tbody>
+    {% for row in section.rows %}
+      <tr>
+        <td>
+          <form method="post" action="{{ url_for('option_rename', option_id=row.id) }}" class="rename-form">
+            <input name="name" value="{{ row.name }}" aria-label="Name" required>
+            <button type="submit" class="secondary small">Rename</button>
+          </form>
+        </td>
+        <td><a href="{{ url_for('index', **{section.kind: row.name}) }}">{{ row.used }}</a></td>
+        <td>
+          <form method="post" action="{{ url_for('option_move', option_id=row.id) }}" class="move-form">
+            <button type="submit" name="direction" value="up" class="secondary small" {% if loop.first %}disabled{% endif %} aria-label="Move up">▲</button>
+            <button type="submit" name="direction" value="down" class="secondary small" {% if loop.last %}disabled{% endif %} aria-label="Move down">▼</button>
+          </form>
+        </td>
+        <td>
+          {% if not row.used %}
+          <form method="post" action="{{ url_for('option_delete', option_id=row.id) }}" onsubmit="return confirm('Remove {{ row.name }}?');">
+            <button type="submit" class="link danger">Remove</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <form method="post" action="{{ url_for('option_add', kind=section.kind) }}" class="inline-form add-option">
+    <input name="name" placeholder="New {{ 'status' if section.kind == 'status' else 'category' }}" required>
+    <button type="submit">Add</button>
+  </form>
+</section>
+{% endfor %}
+{% endblock %}

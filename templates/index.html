@@ -7,12 +7,30 @@
   <a href="{{ url_for('index', **params) }}">{{ label }}{% if active %} {{ '▼' if args.get('dir') == 'desc' else '▲' }}{% endif %}</a>
 {%- endmacro %}
 {% block content %}
+{% set overdue = stats.replace_overdue or 0 %}
+{% set soon = stats.replace_soon or 0 %}
+{% if (overdue or soon) and args.get('replace') != 'due' %}
+<div class="flash warn reminder">
+  <strong>Replacement reminder:</strong>
+  {% if overdue %}{{ overdue }} device(s) past their replacement date{% endif %}{% if overdue and soon %}, {% endif %}{% if soon %}{{ soon }} due in the next {{ reminder_days }} days{% endif %}.
+  <a href="{{ url_for('index', replace='due', sort='replacement_date') }}">Show them</a>
+</div>
+{% endif %}
+
 <section class="stats">
-  <div><strong>{{ stats.total or 0 }}</strong><span>Total devices</span></div>
-  <div><strong>{{ stats.in_service or 0 }}</strong><span>In service</span></div>
-  <div><strong>{{ stats.in_repair or 0 }}</strong><span>In repair</span></div>
-  <div><strong>{{ stats.out_of_warranty or 0 }}</strong><span>Out of warranty</span></div>
+  <a class="stat" href="{{ url_for('index') }}"><strong>{{ stats.total or 0 }}</strong><span>Total devices</span></a>
+  {% for status, count in status_counts %}
+  <a class="stat" href="{{ url_for('index', status=status) }}"><strong>{{ count }}</strong><span>{{ status }}</span></a>
+  {% endfor %}
+  <a class="stat" href="{{ url_for('index', sort='warranty_expires') }}"><strong>{{ stats.out_of_warranty or 0 }}</strong><span>Out of warranty</span></a>
+  <a class="stat {% if overdue or soon %}alert{% endif %}" href="{{ url_for('index', replace='due', sort='replacement_date') }}">
+    <strong>{{ overdue + soon }}</strong><span>Due for replacement{% if overdue %} ({{ overdue }} overdue){% endif %}</span></a>
 </section>
+
+{% if args.get('replace') == 'due' %}
+<p class="flash warn">Showing devices that are past their replacement date or due within {{ reminder_days }} days
+  (retired and lost devices are left out). <a href="{{ url_for('index') }}">Show all devices</a></p>
+{% endif %}
 
 <form class="filters" method="get">
   <input type="search" name="q" value="{{ args.get('q', '') }}" placeholder="Search tag, name, model, serial, person…" autofocus>
@@ -31,6 +49,7 @@
     <option value="">All statuses</option>
     {% for s in STATUSES %}<option {% if args.get('status') == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
   </select>
+  {% if args.get('replace') %}<input type="hidden" name="replace" value="{{ args.get('replace') }}">{% endif %}
   <button type="submit">Filter</button>
   <a href="{{ url_for('index') }}">Clear</a>
   <a class="right" href="{{ url_for('export_csv', **args) }}">Export CSV</a>
@@ -51,21 +70,24 @@
       <th>{{ sort_link('assigned_to', 'Assigned To') }}</th>
       <th>{{ sort_link('status', 'Status') }}</th>
       <th>{{ sort_link('warranty_expires', 'Warranty') }}</th>
+      <th>{{ sort_link('replacement_date', 'Replace by') }}</th>
     </tr>
   </thead>
   <tbody>
     {% for d in devices %}
     <tr>
       <td><a href="{{ url_for('device_view', device_id=d.id) }}">{{ d.asset_tag }}</a></td>
-      <td>{{ d.name }}</td>
+      <td class="wrap">{{ d.name }}</td>
       <td>{{ d.category or '' }}</td>
-      <td>{{ [d.manufacturer, d.model]|select|join(' ') }}</td>
+      <td class="wrap">{{ [d.manufacturer, d.model]|select|join(' ') }}</td>
       <td>{{ d.model_number or '' }}</td>
       <td class="mono">{{ d.serial_number or '' }}</td>
-      <td>{{ d.location or '' }}</td>
-      <td>{{ d.assigned_to or '' }}</td>
+      <td class="wrap">{{ d.location or '' }}</td>
+      <td class="wrap">{{ d.assigned_to or '' }}</td>
       <td><span class="badge status-{{ d.status|lower|replace(' ', '-') }}">{{ d.status }}</span></td>
       <td class="{% if d.warranty_expires and d.warranty_expires < today() %}expired{% endif %}">{{ d.warranty_expires or '' }}</td>
+      {% set active = d.status not in ('Retired', 'Lost') %}
+      <td class="{% if active and d.replacement_date and d.replacement_date < today() %}expired{% elif active and d.replacement_date and d.replacement_date <= soon_date %}due-soon{% endif %}">{{ d.replacement_date or '' }}</td>
     </tr>
     {% endfor %}
   </tbody>

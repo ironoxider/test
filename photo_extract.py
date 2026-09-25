@@ -7,6 +7,7 @@ ANTHROPIC_API_KEY environment variable.
 import base64
 import json
 import os
+from datetime import date
 
 import anthropic
 
@@ -15,7 +16,8 @@ ALLOWED_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_IMAGES = 4
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-EXTRACT_FIELDS = ["manufacturer", "model", "model_number", "serial_number", "category"]
+EXTRACT_FIELDS = ["manufacturer", "model", "model_number", "serial_number", "manufacture_date",
+                  "category"]
 
 PROMPT = """These photos show an IT device and/or its identification label (the sticker \
 on the bottom, back, or inside the battery bay). Read the label and identify the device \
@@ -28,6 +30,9 @@ Fields:
 "A2681", "20XW-00AB". For Lenovo, use the MTM ("Type"). For Apple, use the "Model Axxxx" number.
 - serial_number: the serial number ("S/N", "Serial No.", Dell "Service Tag", Apple "Serial"). \
 Copy it exactly as printed.
+- manufacture_date: the manufacture date ("Mfg. Date", "Date of Manufacture", "MFD") as \
+YYYY-MM-DD. If only a month and year are printed, use the 1st of that month and say so in notes. \
+Use null if no manufacture date is printed; don't guess it from the model.
 - category: one of the allowed values that best fits the device.
 
 Rules:
@@ -51,6 +56,7 @@ def output_schema(categories):
             "model": _nullable_string(),
             "model_number": _nullable_string(),
             "serial_number": _nullable_string(),
+            "manufacture_date": _nullable_string(),
             "category": {"anyOf": [{"type": "string", "enum": list(categories)}, {"type": "null"}]},
             "notes": _nullable_string(),
         },
@@ -138,5 +144,12 @@ def extract_device_info(images, categories, client=None, api_key=None):
             fields[key] = value.strip()
     if fields.get("category") not in categories:
         fields.pop("category", None)
+    if "manufacture_date" in fields:
+        try:
+            parsed = date.fromisoformat(fields["manufacture_date"])
+            if not (1980 <= parsed.year <= date.today().year):
+                raise ValueError
+        except ValueError:
+            fields.pop("manufacture_date")
     notes = result.get("notes") if isinstance(result.get("notes"), str) else None
     return {"fields": fields, "notes": notes}

@@ -224,6 +224,8 @@
     if (el.value.trim() && !overwrite) return false;
     el.value = value;
     el.classList.add("autofilled");
+    // Let other form logic react (e.g. the "Replace by" date follows the manufacture date).
+    el.dispatchEvent(new Event("change", { bubbles: true }));
     return true;
   }
 

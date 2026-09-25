@@ -38,6 +38,18 @@
     {% endif %}
   </fieldset>
   <fieldset>
+    <legend>Replacement reminders</legend>
+    <label>Replace devices after (years)
+      <input type="number" name="lifespan_years" min="1" max="20" value="{{ lifespan_years }}">
+    </label>
+    <label>Remind me this many days ahead
+      <input type="number" name="reminder_days" min="0" max="730" value="{{ reminder_days }}">
+    </label>
+    <p class="wide muted">A device's "Replace by" date fills in automatically as this many years after its purchase
+      date (or manufacture date). Changing the number only affects dates filled in from now on. The Devices page
+      warns you about devices that are past their date or due within the reminder window.</p>
+  </fieldset>
+  <fieldset>
     <legend>Your data</legend>
     <p class="wide">All devices are stored in this file. Copy it somewhere safe to back up:<br>
       <code class="mono">{{ db_path }}</code></p>

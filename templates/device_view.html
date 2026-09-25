@@ -11,7 +11,7 @@
   </div>
 </div>
 <dl class="details">
-  {% for field, label in [('category','Category'),('status','Status'),('manufacturer','Manufacturer'),('model','Model'),('model_number','Model Number'),('serial_number','Serial Number'),('location','Location'),('assigned_to','Assigned To'),('purchase_date','Purchase Date'),('warranty_expires','Warranty Expires')] %}
+  {% for field, label in [('category','Category'),('status','Status'),('manufacturer','Manufacturer'),('model','Model'),('model_number','Model Number'),('serial_number','Serial Number'),('manufacture_date','Manufacture Date'),('location','Location'),('assigned_to','Assigned To'),('purchase_date','Purchase Date'),('warranty_expires','Warranty Expires'),('replacement_date','Replace By')] %}
     <dt>{{ label }}</dt><dd>{{ device[field] or '—' }}</dd>
   {% endfor %}
   <dt>Notes</dt><dd class="notes">{{ device.notes or '—' }}</dd>

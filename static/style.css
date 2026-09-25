@@ -88,3 +88,18 @@ button.small { padding: 3px 9px; font-size: 0.85em; }
 .device-form label.checkbox { display: flex; gap: 8px; align-items: center; color: var(--text); }
 .device-form label.checkbox input { width: auto; }
 code.mono { overflow-wrap: anywhere; }
+.small-note { font-size: 0.88em; }
+.flash.warn { border-color: var(--warn); color: var(--warn); }
+.stats a.stat { display: block; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; color: inherit; text-decoration: none; }
+.stats a.stat:hover { border-color: var(--accent); }
+.stats a.stat.alert { border-color: var(--warn); }
+.stats a.stat.alert strong { color: var(--warn); }
+.due-soon { color: var(--warn); font-weight: 600; }
+.list-section { margin-bottom: 28px; max-width: 700px; }
+.rename-form { display: flex; gap: 6px; align-items: center; }
+.rename-form input { width: auto; flex: 1 1 160px; min-width: 120px; }
+.add-option { margin-top: 10px; }
+.move-form { display: flex; gap: 4px; margin: 0; }
+td.wrap { white-space: normal; min-width: 90px; }
+th, td { padding: 8px 8px; }
