@@ -128,3 +128,10 @@ def test_settings_network_toggle(client):
     resp = client.post("/settings", data={"allow_network": "1"}, follow_redirects=True)
     assert b"Close and reopen" in resp.data
     assert b'name="allow_network" value="1" checked' in resp.data
+
+
+def test_form_accepts_heic_photos(client):
+    page = client.get("/devices/new").data
+    assert b'accept="image/*,.heic,.heif"' in page
+    assert b"vendor/heic2any.min.js" in page
+    assert client.get("/static/vendor/heic2any.min.js").status_code == 200

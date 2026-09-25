@@ -92,6 +92,8 @@ How it works:
   **Always check the highlighted fields before saving.**
 - If the serial number the AI read matches a barcode on the label, the app says so. That's a good sign it's correct.
 - Each barcode found gets buttons to use it as the serial number, model number or asset tag.
+- iPhone photos in **HEIC** format work in every browser. If the browser can't open them itself (Chrome,
+  Edge and Firefox can't), the app converts them to JPEG on your computer first. This takes a few seconds per photo.
 - Best results: photograph the label straight on, fill the frame with it, and avoid glare. Add a
   second photo of the whole device if the label doesn't show the model name.
 - **Using a phone:** on the **Settings** page, tick "Allow phones and other computers on this network"
@@ -142,3 +144,7 @@ The tests use a fake AI client, so they don't need an API key and don't cost any
 `static/vendor/zxing.min.js` is [ZXing for JS](https://github.com/zxing-js/library) 0.21.3 (Apache 2.0,
 see `static/vendor/zxing-LICENSE.txt`). The app uses it to read barcodes in browsers that don't have a
 built-in barcode reader.
+
+`static/vendor/heic2any.min.js` is [heic2any](https://github.com/alexcorvi/heic2any) 0.0.4 (MIT), which
+includes [libheif](https://github.com/strukturag/libheif) (LGPL-3.0). See `static/vendor/heic2any-LICENSE.txt`.
+The app uses it to convert iPhone HEIC photos, and only loads it when a HEIC photo is picked.

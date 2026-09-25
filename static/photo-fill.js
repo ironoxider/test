@@ -32,20 +32,59 @@
     return (value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   }
 
-  async function loadBitmap(file) {
+  async function decodeImage(blob) {
     if (window.createImageBitmap) {
       try {
-        return await createImageBitmap(file, { imageOrientation: "from-image" });
+        return await createImageBitmap(blob, { imageOrientation: "from-image" });
       } catch (e) {
         /* fall through to <img> */
       }
     }
     return new Promise(function (resolve, reject) {
+      const url = URL.createObjectURL(blob);
       const img = new Image();
       img.onload = function () { resolve(img); };
-      img.onerror = function () { reject(new Error("Couldn't open " + file.name)); };
-      img.src = URL.createObjectURL(file);
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("unreadable image")); };
+      img.src = url;
     });
+  }
+
+  function isHeic(file) {
+    return /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name || "");
+  }
+
+  let heicLibrary = null;
+  function loadHeicLibrary() {
+    // Only fetched when a HEIC photo can't be opened natively (e.g. Chrome/Edge/Firefox).
+    if (!heicLibrary) {
+      heicLibrary = new Promise(function (resolve, reject) {
+        const script = document.createElement("script");
+        script.src = panel.dataset.heicUrl;
+        script.onload = function () { resolve(window.heic2any); };
+        script.onerror = function () { heicLibrary = null; reject(new Error("HEIC converter didn't load")); };
+        document.head.appendChild(script);
+      });
+    }
+    return heicLibrary;
+  }
+
+  // Returns {image, blob}. `blob` is what gets uploaded if re-encoding fails.
+  async function loadPhoto(file) {
+    try {
+      return { image: await decodeImage(file), blob: file };
+    } catch (e) {
+      if (!isHeic(file)) throw new Error("Couldn't open " + file.name + ". Try a JPEG or PNG photo.");
+    }
+    // iPhone HEIC photo in a browser that can't show HEIC: convert it to JPEG here.
+    setStatus("Converting iPhone photo " + file.name + "…", "busy");
+    try {
+      const heic2any = await loadHeicLibrary();
+      let jpeg = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.92 });
+      if (Array.isArray(jpeg)) jpeg = jpeg[0];
+      return { image: await decodeImage(jpeg), blob: jpeg };
+    } catch (e) {
+      throw new Error("Couldn't convert " + file.name + " (HEIC). Try exporting it as a JPEG.");
+    }
   }
 
   function toCanvas(image, maxEdge, crop) {
@@ -291,25 +330,26 @@
     previewsEl.innerHTML = "";
     conflictsEl.innerHTML = "";
     const files = Array.prototype.slice.call(input.files, 0, MAX_PHOTOS);
-    if (input.files.length > MAX_PHOTOS) {
-      setStatus("Only the first " + MAX_PHOTOS + " photos will be used.", "error");
-    } else {
-      setStatus(files.length ? "Scanning for barcodes…" : "");
-    }
+    let problem = input.files.length > MAX_PHOTOS
+      ? "Only the first " + MAX_PHOTOS + " photos will be used." : null;
+    setStatus(problem || (files.length ? "Opening photos…" : ""), problem ? "error" : "busy");
     for (const file of files) {
       try {
-        const image = await loadBitmap(file);
-        photos.push({ file: file, image: image });
-        const thumb = toCanvas(image, 160);
+        const loaded = await loadPhoto(file);
+        photos.push({ file: loaded.blob, image: loaded.image });
+        const thumb = toCanvas(loaded.image, 160);
         thumb.className = "pf-thumb";
         previewsEl.appendChild(thumb);
       } catch (e) {
-        setStatus("Couldn't open " + file.name + ". Try a JPEG or PNG photo.", "error");
+        problem = e.message;
       }
     }
     if (aiButton) aiButton.disabled = !photos.length;
+    if (photos.length) setStatus(problem || "Scanning for barcodes…", problem ? "error" : "busy");
     await scanAll();
-    if (photos.length && statusEl.textContent === "Scanning for barcodes…") {
+    if (problem) {
+      setStatus(problem, "error");
+    } else if (photos.length) {
       setStatus(aiButton ? "Click “Read label with AI” to fill in the details." : "");
     }
   });

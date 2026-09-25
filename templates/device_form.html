@@ -7,14 +7,15 @@
 {% if errors %}
   <div class="flash error"><ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>
 {% endif %}
-<section id="photo-fill" class="photo-fill" data-extract-url="{{ url_for('api_extract') }}">
+<section id="photo-fill" class="photo-fill" data-extract-url="{{ url_for('api_extract') }}"
+         data-heic-url="{{ url_for('static', filename='vendor/heic2any.min.js') }}">
   <h2>Fill from photos</h2>
   <p class="muted">Take or choose up to 4 photos: the label/sticker (best) and optionally the device itself.
     Barcodes are read automatically{% if ai_enabled() %}; the AI can read the printed text too{% endif %}.</p>
   <div class="pf-controls">
     <label class="button secondary pf-pick">
       Choose / take photos
-      <input type="file" accept="image/*" multiple hidden>
+      <input type="file" accept="image/*,.heic,.heif" multiple hidden>
     </label>
     {% if ai_enabled() %}
       <button type="button" data-ai disabled>Read label with AI</button>

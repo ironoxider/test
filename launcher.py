@@ -60,7 +60,8 @@ def selftest():
 
         client = create_app({"TESTING": True}).test_client()
         for path in ["/", "/devices/new", "/locations", "/import", "/settings",
-                     "/static/vendor/zxing.min.js", "/static/photo-fill.js"]:
+                     "/static/vendor/zxing.min.js", "/static/vendor/heic2any.min.js",
+                     "/static/photo-fill.js"]:
             status = client.get(path).status_code
             print(f"{status} {path}")
             if status != 200:
