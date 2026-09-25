@@ -3,16 +3,46 @@
 import json
 import os
 import secrets
+import socket
 import sys
+import time
 
 # Shown at the bottom of every page; bump it with each release so people can tell
 # which version they're running (and so the launcher can spot an older copy).
-APP_VERSION = "1.4"
+APP_VERSION = "1.5"
 
 FROZEN = getattr(sys, "frozen", False)  # True when running as a packaged (PyInstaller) app
 
 # Read-only files that ship with the app (templates, static, schema.sql).
 RESOURCE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+
+
+_lan_cache = (0.0, [])
+
+
+def lan_addresses():
+    """This computer's addresses on the local network, most likely one first."""
+    global _lan_cache
+    if time.time() - _lan_cache[0] < 60:
+        return _lan_cache[1]
+    found = []
+    try:
+        # Doesn't send anything; just picks the interface used for outbound traffic.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            found.append(s.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        found += socket.gethostbyname_ex(socket.gethostname())[2]
+    except OSError:
+        pass
+    addrs = []
+    for a in found:
+        if a not in addrs and not a.startswith(("127.", "169.254.", "0.")):
+            addrs.append(a)
+    _lan_cache = (time.time(), addrs)
+    return addrs
 
 
 def default_data_dir():

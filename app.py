@@ -8,6 +8,7 @@ Run with:  python app.py   (then open http://127.0.0.1:5000)
 
 import csv
 import io
+import ipaddress
 import os
 import sqlite3
 from datetime import date, timedelta
@@ -104,6 +105,7 @@ def create_app(test_config=None):
         app.config["SECRET_KEY"] = app_settings.secret_key(app.config["SETTINGS_PATH"])
 
     app.teardown_appcontext(close_db)
+    app.before_request(check_remote_access)
     with app.app_context():
         init_db()
 
@@ -217,6 +219,36 @@ def ensure_option(db, kind, name):
         "(SELECT COALESCE(MAX(sort_order), 0) + 1 FROM options WHERE kind = ?))",
         (kind, name, kind))
     return name
+
+
+def is_this_computer(addr):
+    try:
+        if ipaddress.ip_address(addr or "").is_loopback:
+            return True
+    except ValueError:
+        return False
+    return addr in app_settings.lan_addresses()
+
+
+def check_remote_access():
+    """Turn away other devices unless phone access is on; Settings stay local-only."""
+    from flask import current_app
+
+    if is_this_computer(request.remote_addr):
+        return None
+    allowed = app_settings.load(current_app.config["SETTINGS_PATH"]).get("allow_network", False)
+    if not allowed:
+        return render_template("remote_blocked.html", reason="off"), 403
+    if request.endpoint == "settings":
+        return render_template("remote_blocked.html", reason="settings"), 403
+    return None
+
+
+def phone_access_info(app):
+    """What the Settings page shows about using a phone."""
+    port = app.config.get("LISTEN_PORT")
+    urls = [f"http://{a}:{port}/" for a in app_settings.lan_addresses()] if port else []
+    return {"listening": bool(app.config.get("LISTENS_ON_NETWORK")), "urls": urls}
 
 
 def saved_api_key():
@@ -594,7 +626,8 @@ def register_routes(app):
             app_settings.update(path, **changes)
             msg = "Settings saved."
             if changes["allow_network"] != before:
-                msg += " Close and reopen Device Inventory for the network change to take effect."
+                msg += (" Phone access is now on." if changes["allow_network"]
+                        else " Phone access is now off.")
             flash(msg, "success")
             return redirect(url_for("settings"))
         data = app_settings.load(path)
@@ -607,7 +640,7 @@ def register_routes(app):
             lifespan_years=data.get("lifespan_years", DEFAULT_LIFESPAN_YEARS),
             reminder_days=data.get("reminder_days", DEFAULT_REMINDER_DAYS),
             db_path=os.path.abspath(app.config["DATABASE"]),
-            network_urls=app.config.get("NETWORK_URLS", []),
+            phone=phone_access_info(app),
         )
 
     @app.route("/lists")

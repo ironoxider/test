@@ -49,18 +49,6 @@ def running_version(port):
     return match.group(1) if match else ""
 
 
-def lan_addresses():
-    addrs = set()
-    try:
-        # Doesn't send anything; just picks the interface used for outbound traffic.
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("10.255.255.255", 1))
-            addrs.add(s.getsockname()[0])
-    except OSError:
-        pass
-    return sorted(a for a in addrs if not a.startswith("127."))
-
-
 def selftest():
     """Start the app against a throwaway database and load each page. Used by the build."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -70,6 +58,7 @@ def selftest():
         client = create_app({"TESTING": True}).test_client()
         for path in ["/", "/devices/new", "/locations", "/lists", "/import", "/settings",
                      "/static/vendor/zxing.min.js", "/static/vendor/heic2any.min.js",
+                     "/static/vendor/qrcode.js",
                      "/static/photo-fill.js"]:
             status = client.get(path).status_code
             print(f"{status} {path}")
@@ -92,7 +81,9 @@ def main():
     app = create_app()
     settings = app_settings.load(app.config["SETTINGS_PATH"])
     allow_network = settings.get("allow_network", False)
-    host = os.environ.get("INVENTORY_HOST") or ("0.0.0.0" if allow_network else "127.0.0.1")
+    # Always listen on the network so the phone setting works without a restart; the app
+    # itself turns away other devices unless "Allow phones..." is ticked in Settings.
+    host = os.environ.get("INVENTORY_HOST") or "0.0.0.0"
 
     port = int(os.environ.get("INVENTORY_PORT", FIRST_PORT))
     older_copy = None
@@ -112,8 +103,9 @@ def main():
         return 1
 
     local_url = f"http://127.0.0.1:{port}/"
-    network_urls = [f"http://{a}:{port}/" for a in lan_addresses()] if host == "0.0.0.0" else []
-    app.config["NETWORK_URLS"] = network_urls
+    app.config["LISTEN_PORT"] = port
+    app.config["LISTENS_ON_NETWORK"] = host not in ("127.0.0.1", "localhost", "::1")
+    network_urls = [f"http://{a}:{port}/" for a in app_settings.lan_addresses()]
 
     if older_copy:
         print("!" * 60)
@@ -125,8 +117,10 @@ def main():
     print("=" * 60)
     print(f" {APP_NAME} {app_settings.APP_VERSION} is running.")
     print(f" Open in your browser: {local_url}")
-    for url in network_urls:
-        print(f" On a phone on the same network: {url}")
+    if app.config["LISTENS_ON_NETWORK"] and allow_network and network_urls:
+        print(f" On a phone on the same Wi-Fi: {network_urls[0]}")
+    elif app.config["LISTENS_ON_NETWORK"]:
+        print(" Phone access is off. Turn it on in Settings to use a phone.")
     print(f" Your data is saved in: {os.path.abspath(app.config['DATABASE'])}")
     print()
     print(" Keep this window open while you use it.")

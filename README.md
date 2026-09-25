@@ -107,9 +107,12 @@ How it works:
   Edge and Firefox can't), the app converts them to JPEG on your computer first. This takes a few seconds per photo.
 - Best results: photograph the label straight on, fill the frame with it, and avoid glare. Add a
   second photo of the whole device if the label doesn't show the model name.
-- **Using a phone:** on the **Settings** page, tick "Allow phones and other computers on this network"
-  and reopen the app. The window and the Settings page then show an address like `http://192.168.1.20:5000`
-  to open on a phone on the same Wi-Fi. "Choose / take photos" then offers the camera.
+- **Using a phone:** on the **Settings** page, tick "Allow phones and other computers on this network" and
+  click Save (no restart needed). Settings then shows the phone address (like `http://192.168.1.20:5000/`)
+  and a QR code to scan with the phone's camera. The phone must be on the same Wi-Fi. "Choose / take photos"
+  then offers the camera. If the phone can't connect, Settings has a "Phone still can't connect?" checklist
+  (port number, firewall, Wi-Fi that blocks devices from reaching each other, Chromebook port forwarding).
+  Settings itself, with the API key, can only be opened on the computer running the app.
 
 The AI model defaults to `claude-opus-5`. Set `INVENTORY_AI_MODEL` to use another one.
 If a request is declined by the model's safety checks, it is automatically retried on a fallback model.
@@ -160,3 +163,6 @@ built-in barcode reader.
 `static/vendor/heic2any.min.js` is [heic2any](https://github.com/alexcorvi/heic2any) 0.0.4 (MIT), which
 includes [libheif](https://github.com/strukturag/libheif) (LGPL-3.0). See `static/vendor/heic2any-LICENSE.txt`.
 The app uses it to convert iPhone HEIC photos, and only loads it when a HEIC photo is picked.
+
+`static/vendor/qrcode.js` is [QR Code Generator](https://github.com/kazuhikoarase/qrcode-generator) 2.0.4
+by Kazuhiko Arase (MIT, license in the file header). It draws the phone-address QR code on the Settings page.

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Not available · Device Inventory</title>
+  <style>
+    :root { --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #667085; --border: #dde1e7; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #14161b; --panel: #1d2028; --text: #e6e8ec; --muted: #9aa3b2; --border: #333844; }
+    }
+    body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    main { max-width: 560px; margin: 40px auto; padding: 0 16px; }
+    .box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+    h1 { font-size: 1.3em; margin-top: 0; }
+    ol { padding-left: 20px; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <div class="box">
+  {% if reason == "settings" %}
+    <h1>Settings can only be changed on the computer</h1>
+    <p>For safety, the Settings page (with the API key and phone access) only opens on the computer that's
+      running Device Inventory. Everything else works from here.</p>
+    <p><a href="/">Back to the devices</a></p>
+  {% else %}
+    <h1>Phone access is turned off</h1>
+    <p>You've reached Device Inventory, but it only accepts this computer right now. To use it from this device:</p>
+    <ol>
+      <li>On the computer running Device Inventory, open <strong>Settings</strong>.</li>
+      <li>Tick <strong>Allow phones and other computers on this network</strong> and click <strong>Save settings</strong>.</li>
+      <li>Reload this page.</li>
+    </ol>
+    <p class="muted">Device Inventory {{ APP_VERSION }}</p>
+  {% endif %}
+  </div>
+</main>
+</body>
+</html>

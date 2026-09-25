@@ -72,6 +72,14 @@ def client(tmp_path):
     return create_app({"TESTING": True, "DATABASE": str(tmp_path / "t.db")}).test_client()
 
 
+@pytest.fixture
+def app_with_port(tmp_path, monkeypatch):
+    import app_settings
+    monkeypatch.setattr(app_settings, "lan_addresses", lambda: ["192.168.1.20"])
+    return create_app({"TESTING": True, "DATABASE": str(tmp_path / "t.db"),
+                       "LISTEN_PORT": 5123, "LISTENS_ON_NETWORK": True})
+
+
 def test_api_extract_not_configured(client, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     resp = client.post("/api/extract")
@@ -126,8 +134,43 @@ def test_settings_saves_key_and_enables_ai(client, monkeypatch):
 
 def test_settings_network_toggle(client):
     resp = client.post("/settings", data={"allow_network": "1"}, follow_redirects=True)
-    assert b"Close and reopen" in resp.data
+    assert b"Phone access is now on" in resp.data
     assert b'name="allow_network" value="1" checked' in resp.data
+
+
+PHONE = {"REMOTE_ADDR": "192.0.2.50"}  # an address that isn't this computer
+
+
+def test_phone_blocked_until_allowed_then_works_without_restart(client):
+    resp = client.get("/", environ_base=PHONE)
+    assert resp.status_code == 403 and b"Phone access is turned off" in resp.data
+    client.post("/settings", data={"allow_network": "1"})  # from this computer
+    resp = client.get("/", environ_base=PHONE)
+    assert resp.status_code == 200 and b"Total devices" in resp.data
+    assert client.get("/static/style.css", environ_base=PHONE).status_code == 200
+    client.post("/settings", data={})  # turn it off again
+    assert client.get("/", environ_base=PHONE).status_code == 403
+
+
+def test_settings_only_from_this_computer(client):
+    client.post("/settings", data={"allow_network": "1"})
+    resp = client.get("/settings", environ_base=PHONE)
+    assert resp.status_code == 403 and b"only be changed on the computer" in resp.data
+    resp = client.post("/settings", data={"anthropic_api_key": "sk-ant-evil"}, environ_base=PHONE)
+    assert resp.status_code == 403
+    assert b"\xe2\x80\xa6evil" not in client.get("/settings").data
+
+
+def test_settings_shows_phone_address_and_qr(app_with_port):
+    client = app_with_port.test_client()
+    client.post("/settings", data={"allow_network": "1"})
+    page = client.get("/settings").data.decode()
+    assert "Phone access is on" in page and ":5123/" in page and 'id="phone-qr"' in page
+
+
+def test_settings_warns_when_started_with_app_py(client):
+    client.post("/settings", data={"allow_network": "1"})
+    assert b"only lets this computer" in client.get("/settings").data
 
 
 def test_form_accepts_heic_photos(client):

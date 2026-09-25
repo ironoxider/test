@@ -1,5 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Settings · Device Inventory{% endblock %}
+{% block title %}Settings · Device Inventory<script src="{{ url_for('static', filename='vendor/qrcode.js') }}"></script>
+<script>
+  (function () {
+    var box = document.getElementById("phone-qr");
+    if (!box || !window.qrcode) return;
+    var qr = qrcode(0, "M");
+    qr.addData(box.dataset.url);
+    qr.make();
+    box.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 3, scalable: true });
+  })();
+</script>
+{% endblock %}
 {% block content %}
 <h1>Settings</h1>
 <form method="post" class="device-form" autocomplete="off">
@@ -22,19 +33,54 @@
     <label class="checkbox"><input type="checkbox" name="remove_key" value="1"> Remove saved key</label>
     {% endif %}
   </fieldset>
-  <fieldset>
+  <fieldset id="phone">
     <legend>Phones &amp; other computers</legend>
     <label class="checkbox wide">
       <input type="checkbox" name="allow_network" value="1" {% if allow_network %}checked{% endif %}>
       Allow phones and other computers on this network to open Device Inventory
     </label>
     <p class="wide muted">
-      Use this to take label photos with a phone. Anyone on the same network can then view and change the
-      inventory, because there is no login, so only turn it on for a trusted network. Close and reopen
-      Device Inventory after changing it.
+      Use this to take label photos with a phone. It takes effect as soon as you click Save settings.
+      Anyone on the same network can then view and change the inventory, because there is no login, so only
+      turn it on for a trusted network. Settings can only be changed on this computer.
     </p>
-    {% if network_urls %}
-    <p class="wide">On your phone, open: {% for u in network_urls %}<code>{{ u }}</code>{% if not loop.last %} or {% endif %}{% endfor %}</p>
+    {% if not phone.listening %}
+    <p class="wide flash warn">This copy was started with <code>python app.py</code>, which only lets this computer
+      connect. To use a phone, close it and start Device Inventory with its start script or the downloaded program.</p>
+    {% elif allow_network and phone.urls %}
+    <div class="wide phone-box">
+      <div id="phone-qr" class="qr" data-url="{{ phone.urls[0] }}" aria-label="QR code for {{ phone.urls[0] }}"></div>
+      <div>
+        <p><strong>Phone access is on.</strong> On a phone connected to the <strong>same Wi-Fi</strong>, scan this
+          code with the camera, or type this address exactly (including the <code>:{{ phone.urls[0].split(':')[2].rstrip('/') }}</code>):</p>
+        <p class="phone-url"><code>{{ phone.urls[0] }}</code></p>
+        {% if phone.urls|length > 1 %}
+        <p class="muted">If that doesn't open, try: {% for u in phone.urls[1:] %}<code>{{ u }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+        {% endif %}
+      </div>
+    </div>
+    <details class="wide">
+      <summary>Phone still can't connect?</summary>
+      <ul>
+        <li><strong>"Connection refused":</strong> check the number after the <code>:</code> matches the address above.
+          It can change, for example if another copy of Device Inventory was already open. Close all other
+          Device Inventory windows and reopen it.</li>
+        <li><strong>The page keeps loading, then times out:</strong> the computer's firewall is probably blocking it.
+          <em>Windows:</em> when Windows asks whether to allow DeviceInventory (or Python) on networks, tick
+          <strong>Private networks</strong> and click Allow. If you missed that, search the Start menu for
+          "Allow an app through Windows Firewall". <em>Mac:</em> System Settings &rarr; Network &rarr; Firewall &rarr;
+          Options, and allow DeviceInventory (or Python).</li>
+        <li>The phone must be on the <strong>same Wi-Fi</strong> as this computer, not on mobile data. Some school and
+          guest Wi-Fi networks don't let devices reach each other at all; if so, ask IT, or use a network where
+          that's allowed.</li>
+        <li><strong>Chromebook:</strong> apps in the Linux terminal aren't reachable from other devices until you
+          add port forwarding: Settings &rarr; Advanced &rarr; Developers &rarr; Linux &rarr; Port forwarding &rarr;
+          add port {{ phone.urls[0].split(':')[2].rstrip('/') }} (TCP) and turn it on. Then use the Chromebook's own
+          Wi-Fi address (Settings &rarr; Network &rarr; your Wi-Fi) with that port.</li>
+      </ul>
+    </details>
+    {% elif allow_network %}
+    <p class="wide flash warn">Phone access is on, but this computer doesn't seem to be connected to a network.</p>
     {% endif %}
   </fieldset>
   <fieldset>
@@ -56,4 +102,15 @@
   </fieldset>
   <div class="actions"><button type="submit">Save settings</button></div>
 </form>
+<script src="{{ url_for('static', filename='vendor/qrcode.js') }}"></script>
+<script>
+  (function () {
+    var box = document.getElementById("phone-qr");
+    if (!box || !window.qrcode) return;
+    var qr = qrcode(0, "M");
+    qr.addData(box.dataset.url);
+    qr.make();
+    box.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 3, scalable: true });
+  })();
+</script>
 {% endblock %}
