@@ -178,3 +178,13 @@ def test_form_accepts_heic_photos(client):
     assert b'accept="image/*,.heic,.heif"' in page
     assert b"vendor/heic2any.min.js" in page
     assert client.get("/static/vendor/heic2any.min.js").status_code == 200
+
+
+def test_admin_key_is_refused(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    resp = client.post("/settings", data={"anthropic_api_key": "sk-ant-admin01-abc"},
+                       follow_redirects=True)
+    assert b"Admin API key" in resp.data and b"Read label with AI" not in client.get("/devices/new").data
+    with pytest.raises(photo_extract.ExtractionError, match="Admin API key"):
+        photo_extract.extract_device_info([(b"x", "image/jpeg")], CATEGORIES,
+                                          FakeClient(LABEL_REPLY), api_key="sk-ant-admin01-abc")

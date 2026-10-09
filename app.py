@@ -617,7 +617,10 @@ def register_routes(app):
             if request.form.get("remove_key"):
                 changes["anthropic_api_key"] = None
             elif new_key:
-                if not new_key.startswith("sk-ant-"):
+                if photo_extract.is_admin_key(new_key):
+                    flash(photo_extract.WRONG_KEY_MESSAGE, "error")
+                    return redirect(url_for("settings"))
+                elif not new_key.startswith("sk-ant-"):
                     flash("That doesn't look like an Anthropic API key (they start with sk-ant-).",
                           "error")
                     return redirect(url_for("settings"))

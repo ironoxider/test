@@ -65,6 +65,15 @@ def output_schema(categories):
     }
 
 
+WRONG_KEY_MESSAGE = ("This is an Admin API key, which can't read photos. In the Claude Console, open "
+                     "API keys, click Create key, choose a workspace (Default is fine), and paste "
+                     "that key on the Settings page instead.")
+
+
+def is_admin_key(key):
+    return bool(key) and key.strip().startswith("sk-ant-admin")
+
+
 class ExtractionError(Exception):
     """A problem to show the user (bad input, API failure, refusal)."""
 
@@ -99,6 +108,8 @@ def extract_device_info(images, categories, client=None, api_key=None):
     content.append({"type": "text", "text": PROMPT})
 
     # With no saved key, the SDK falls back to the ANTHROPIC_API_KEY environment variable.
+    if is_admin_key(api_key or os.environ.get("ANTHROPIC_API_KEY")):
+        raise ExtractionError(WRONG_KEY_MESSAGE)
     client = client or anthropic.Anthropic(api_key=api_key or None, timeout=90.0)
     try:
         response = client.beta.messages.create(
@@ -119,6 +130,8 @@ def extract_device_info(images, categories, client=None, api_key=None):
     except anthropic.RateLimitError:
         raise ExtractionError("Too many requests right now. Wait a minute and try again.")
     except anthropic.BadRequestError as e:
+        if "workspace" in str(e.message).lower():
+            raise ExtractionError(WRONG_KEY_MESSAGE)
         raise ExtractionError(f"The photo couldn't be processed: {e.message}")
     except anthropic.APIStatusError as e:
         raise ExtractionError(f"The AI service returned an error ({e.status_code}). Try again.")
