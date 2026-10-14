@@ -95,6 +95,20 @@
       date (or manufacture date). Changing the number only affects dates filled in from now on. The Devices page
       warns you about devices that are past their date or due within the reminder window.</p>
   </fieldset>
+  <fieldset id="helpdesk">
+    <legend>Help desk (Spiceworks)</legend>
+    <label>Ticket email address
+      <input type="email" name="helpdesk_email" value="{{ helpdesk_email }}" placeholder="e.g. help@yourschool.on.spiceworks.com" spellcheck="false">
+    </label>
+    <label>Ticket web address
+      <input name="ticket_url" value="{{ ticket_url }}" placeholder="https://…/tickets/{number}" spellcheck="false">
+    </label>
+    <p class="wide muted">With an email address, each device page gets a <strong>Report a problem</strong> button that
+      opens a new email to the help desk with the device's asset tag, model, serial number, location and assigned
+      person already filled in. In Spiceworks the address is the one emailed tickets go to (see its help desk email
+      settings). For the web address, open any ticket in Spiceworks, copy the address from the browser and replace
+      the ticket number with <code>{number}</code>; ticket numbers on device pages then link straight to the ticket.</p>
+  </fieldset>
   <fieldset>
     <legend>Your data</legend>
     <p class="wide">All devices are stored in this file. Copy it somewhere safe to back up:<br>

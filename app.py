@@ -9,8 +9,10 @@ Run with:  python app.py   (then open http://127.0.0.1:5000)
 import csv
 import io
 import ipaddress
+import re
 import os
 import sqlite3
+import urllib.parse
 from datetime import date, timedelta
 
 from flask import (
@@ -87,6 +89,7 @@ SORTABLE = {
     "status": "d.status",
     "warranty_expires": "d.warranty_expires",
     "replacement_date": "d.replacement_date",
+    "tickets": "ticket_count",
 }
 
 
@@ -362,8 +365,10 @@ def query_devices(db, args):
             "d.asset_tag", "d.name", "d.manufacturer", "d.model", "d.model_number",
             "d.serial_number", "d.assigned_to", "d.notes", "l.name",
         ]
-        where.append("(" + " OR ".join(f"{c} LIKE ?" for c in searchable) + ")")
-        params += [like] * len(searchable)
+        where.append("(" + " OR ".join(f"{c} LIKE ?" for c in searchable)
+                     + " OR EXISTS (SELECT 1 FROM tickets t WHERE t.device_id = d.id"
+                     " AND (t.ticket_number LIKE ? OR t.summary LIKE ?)))")
+        params += [like] * (len(searchable) + 2)
     if clean(args.get("location")):
         if args["location"] == "none":
             where.append("d.location_id IS NULL")
@@ -374,6 +379,8 @@ def query_devices(db, args):
         where.append("d.replacement_date IS NOT NULL AND d.replacement_date <= date('now', ?) "
                      f"AND d.status NOT IN ({', '.join('?' * len(INACTIVE_STATUSES))})")
         params += [f"+{reminder_days()} days", *INACTIVE_STATUSES]
+    if args.get("tickets") == "open":
+        where.append("EXISTS (SELECT 1 FROM tickets t WHERE t.device_id = d.id AND t.status = 'Open')")
     for field in ("status", "category"):
         if clean(args.get(field)):
             where.append(f"d.{field} = ?")
@@ -382,8 +389,11 @@ def query_devices(db, args):
     sort = SORTABLE.get(args.get("sort"), "d.asset_tag")
     direction = "DESC" if args.get("dir") == "desc" else "ASC"
     sql = (
-        "SELECT d.*, l.name AS location FROM devices d "
-        "LEFT JOIN locations l ON l.id = d.location_id"
+        "SELECT d.*, l.name AS location,"
+        " (SELECT COUNT(*) FROM tickets t WHERE t.device_id = d.id) AS ticket_count,"
+        " (SELECT COUNT(*) FROM tickets t WHERE t.device_id = d.id AND t.status = 'Open')"
+        " AS open_tickets"
+        " FROM devices d LEFT JOIN locations l ON l.id = d.location_id"
         + (" WHERE " + " AND ".join(where) if where else "")
         + f" ORDER BY {sort} IS NULL, {sort} COLLATE NOCASE {direction}, d.id"
     )
@@ -417,6 +427,54 @@ def form_to_device(form, db):
     return data
 
 
+# ---------------------------------------------------------------- help desk tickets
+
+
+def normalize_ticket_number(value):
+    value = clean(value)
+    return value.lstrip("#").strip() or None if value else None
+
+
+def ticket_link(number):
+    """Link to a ticket in the help desk, from the address pattern saved in Settings."""
+    pattern = app_setting("ticket_url", None)
+    if not pattern or not number:
+        return None
+    return pattern.replace("{number}", urllib.parse.quote(number))
+
+
+def report_problem_mailto(device):
+    """A mailto: link that opens a help desk ticket email describing `device`."""
+    address = app_setting("helpdesk_email", None)
+    if not address:
+        return None
+    make_model = " ".join(filter(None, [device["manufacturer"], device["model"]]))
+    details = [
+        ("Asset tag", device["asset_tag"]), ("Name", device["name"]),
+        ("Category", device["category"]), ("Make / model", make_model),
+        ("Model number", device["model_number"]), ("Serial number", device["serial_number"]),
+        ("Location", device["location"]), ("Assigned to", device["assigned_to"]),
+        ("Status", device["status"]),
+    ]
+    # Help desks such as Spiceworks treat "#word" in an email as a command, so no "#" here.
+    body = ("Describe the problem here:\n\n\n\n"
+            "-- Device details (from Device Inventory) --\n"
+            + "\n".join(f"{label}: {value}" for label, value in details if value))
+    subject = f"Problem with {device['asset_tag']}" + (f" ({device['name']})" if device["name"] else "")
+    query = urllib.parse.urlencode({"subject": subject, "body": body}, quote_via=urllib.parse.quote)
+    return f"mailto:{urllib.parse.quote(address, safe='@')}?{query}"
+
+
+def log_ticket_history(db, device_id, old, new):
+    db.execute("INSERT INTO device_history (device_id, field, old_value, new_value) "
+               "VALUES (?, 'ticket', ?, ?)", (device_id, old, new))
+
+
+def ticket_label(ticket):
+    number = f"Ticket {ticket['ticket_number']}" if ticket["ticket_number"] else "Ticket"
+    return number + (f" ({ticket['summary']})" if ticket["summary"] else "")
+
+
 # ------------------------------------------------------------------ routes
 
 
@@ -439,11 +497,14 @@ def register_routes(app):
             " FROM devices",
             [*INACTIVE_STATUSES, *INACTIVE_STATUSES, f"+{reminder_days()} days", *INACTIVE_STATUSES],
         ).fetchone()
+        open_ticket_devices = db.execute(
+            "SELECT COUNT(DISTINCT device_id) FROM tickets WHERE status = 'Open'").fetchone()[0]
         counts = dict(db.execute("SELECT status, COUNT(*) FROM devices GROUP BY status").fetchall())
         status_counts = [(s, counts[s]) for s in list_options(db, "status") if counts.get(s)]
         return render_template(
             "index.html", devices=devices, locations=locations, stats=stats,
             status_counts=status_counts, args=request.args, reminder_days=reminder_days(),
+            open_ticket_devices=open_ticket_devices,
             soon_date=(date.today() + timedelta(days=reminder_days())).isoformat(),
         )
 
@@ -482,7 +543,63 @@ def register_routes(app):
         history = db.execute(
             "SELECT * FROM device_history WHERE device_id = ? ORDER BY id DESC", (device_id,)
         ).fetchall()
-        return render_template("device_view.html", device=device, history=history)
+        tickets = db.execute(
+            "SELECT * FROM tickets WHERE device_id = ? "
+            "ORDER BY status = 'Closed', opened_on DESC, id DESC", (device_id,)).fetchall()
+        return render_template("device_view.html", device=device, history=history,
+                               tickets=tickets, ticket_link=ticket_link,
+                               report_mailto=report_problem_mailto(device))
+
+    @app.route("/devices/<int:device_id>/tickets", methods=["POST"])
+    def ticket_add(device_id):
+        db = get_db()
+        if db.execute("SELECT 1 FROM devices WHERE id = ?", (device_id,)).fetchone() is None:
+            abort(404)
+        number = normalize_ticket_number(request.form.get("ticket_number"))
+        summary = clean(request.form.get("summary"))
+        opened = clean(request.form.get("opened_on")) or date.today().isoformat()
+        try:
+            date.fromisoformat(opened)
+        except ValueError:
+            flash("The ticket date isn't a valid date.", "error")
+            return redirect(url_for("device_view", device_id=device_id) + "#tickets")
+        if not number and not summary:
+            flash("Enter a ticket number or a short summary.", "error")
+            return redirect(url_for("device_view", device_id=device_id) + "#tickets")
+        cur = db.execute("INSERT INTO tickets (device_id, ticket_number, opened_on, summary) "
+                         "VALUES (?, ?, ?, ?)", (device_id, number, opened, summary))
+        ticket = db.execute("SELECT * FROM tickets WHERE id = ?", (cur.lastrowid,)).fetchone()
+        log_ticket_history(db, device_id, None, ticket_label(ticket) + " opened")
+        db.commit()
+        flash("Ticket logged.", "success")
+        return redirect(url_for("device_view", device_id=device_id) + "#tickets")
+
+    def get_ticket(ticket_id):
+        ticket = get_db().execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
+        if ticket is None:
+            abort(404)
+        return ticket
+
+    @app.route("/tickets/<int:ticket_id>/status", methods=["POST"])
+    def ticket_status(ticket_id):
+        db, ticket = get_db(), get_ticket(ticket_id)
+        closing = ticket["status"] == "Open"
+        db.execute("UPDATE tickets SET status = ?, closed_on = ? WHERE id = ?",
+                   ("Closed" if closing else "Open",
+                    date.today().isoformat() if closing else None, ticket_id))
+        log_ticket_history(db, ticket["device_id"], ticket_label(ticket),
+                           "closed" if closing else "reopened")
+        db.commit()
+        return redirect(url_for("device_view", device_id=ticket["device_id"]) + "#tickets")
+
+    @app.route("/tickets/<int:ticket_id>/delete", methods=["POST"])
+    def ticket_delete(ticket_id):
+        db, ticket = get_db(), get_ticket(ticket_id)
+        db.execute("DELETE FROM tickets WHERE id = ?", (ticket_id,))
+        log_ticket_history(db, ticket["device_id"], ticket_label(ticket), "removed")
+        db.commit()
+        flash("Ticket removed.", "success")
+        return redirect(url_for("device_view", device_id=ticket["device_id"]) + "#tickets")
 
     @app.route("/devices/<int:device_id>/edit", methods=["GET", "POST"])
     def device_edit(device_id):
@@ -613,6 +730,20 @@ def register_routes(app):
                     continue
                 if low <= value <= high:
                     changes[key] = value
+            if "helpdesk_email" in request.form:
+                email = clean(request.form.get("helpdesk_email"))
+                if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+                    flash("The help desk email address doesn't look right.", "error")
+                    return redirect(url_for("settings") + "#helpdesk")
+                changes["helpdesk_email"] = email
+            if "ticket_url" in request.form:
+                pattern = clean(request.form.get("ticket_url"))
+                if pattern and not (pattern.startswith(("https://", "http://"))
+                                    and "{number}" in pattern):
+                    flash("The ticket address must start with https:// and contain {number} where "
+                          "the ticket number goes.", "error")
+                    return redirect(url_for("settings") + "#helpdesk")
+                changes["ticket_url"] = pattern
             new_key = clean(request.form.get("anthropic_api_key"))
             if request.form.get("remove_key"):
                 changes["anthropic_api_key"] = None
@@ -642,6 +773,8 @@ def register_routes(app):
             allow_network=data.get("allow_network", False),
             lifespan_years=data.get("lifespan_years", DEFAULT_LIFESPAN_YEARS),
             reminder_days=data.get("reminder_days", DEFAULT_REMINDER_DAYS),
+            helpdesk_email=data.get("helpdesk_email") or "",
+            ticket_url=data.get("ticket_url") or "",
             db_path=os.path.abspath(app.config["DATABASE"]),
             phone=phone_access_info(app),
         )

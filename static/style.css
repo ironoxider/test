@@ -58,10 +58,10 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
 .actions { display: flex; gap: 10px; align-items: center; }
 .actions form { margin: 0; }
 .heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
-.details { display: grid; grid-template-columns: max-content 1fr; gap: 6px 20px; background: var(--panel);
+.details { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 20px; background: var(--panel);
   border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; max-width: 900px; }
 .details dt { color: var(--muted); }
-.details dd { margin: 0; }
+.details dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .notes { white-space: pre-wrap; }
 .history { max-width: 900px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 .history td { white-space: normal; }
@@ -113,3 +113,12 @@ th, td { padding: 8px 8px; }
 .device-form details { color: var(--text); }
 .device-form details summary { cursor: pointer; color: var(--accent); }
 .device-form details li { margin: 6px 0; }
+
+/* Help desk tickets */
+.ticket-form { max-width: 900px; margin-top: 10px; }
+.ticket-form .grow { flex: 1 1 220px; }
+.tickets tr.closed td { color: var(--muted); }
+.tickets-wrap { max-width: 900px; }
+.tickets .row-actions { display: flex; gap: 6px; }
+.badge.ticket-open { background: color-mix(in srgb, var(--warn) 18%, var(--panel)); color: var(--warn); }
+.badge.ticket-closed { opacity: 0.75; }

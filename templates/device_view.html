@@ -4,6 +4,7 @@
 <div class="heading">
   <h1>{{ device.asset_tag }} <small>{{ device.name }}</small></h1>
   <div class="actions">
+    {% if report_mailto %}<a class="button secondary" href="{{ report_mailto }}">Report a problem</a>{% endif %}
     <a class="button" href="{{ url_for('device_edit', device_id=device.id) }}">Edit</a>
     <form method="post" action="{{ url_for('device_delete', device_id=device.id) }}" onsubmit="return confirm('Delete {{ device.asset_tag }}? This cannot be undone.');">
       <button type="submit" class="danger">Delete</button>
@@ -19,6 +20,46 @@
   <dt>Last updated</dt><dd>{{ device.updated_at }} UTC</dd>
 </dl>
 
+<h2 id="tickets">Help desk tickets</h2>
+<p class="muted">
+  {% if report_mailto %}<strong>Report a problem</strong> (top of the page) opens an email to the help desk with this
+  device's details filled in. Once the ticket is created, log its number here.
+  {% else %}Log help desk tickets for this device here. To get a "Report a problem" button that emails the help desk
+  with this device's details, add your help desk's email address in <a href="{{ url_for('settings') }}#helpdesk">Settings</a>.{% endif %}
+</p>
+{% if tickets %}
+<div class="table-wrap tickets-wrap">
+<table class="history tickets">
+  <thead><tr><th>Ticket</th><th>Opened</th><th>Summary</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for t in tickets %}
+    {% set link = ticket_link(t.ticket_number) %}
+    <tr class="{{ 'closed' if t.status == 'Closed' }}">
+      <td class="mono">{% if link %}<a href="{{ link }}" target="_blank" rel="noopener">{{ t.ticket_number }}</a>{% else %}{{ t.ticket_number or '—' }}{% endif %}</td>
+      <td>{{ t.opened_on }}</td>
+      <td class="wrap">{{ t.summary or '' }}</td>
+      <td><span class="badge ticket-{{ t.status|lower }}">{{ t.status }}</span>{% if t.closed_on %} <span class="muted">{{ t.closed_on }}</span>{% endif %}</td>
+      <td><div class="row-actions">
+        <form method="post" action="{{ url_for('ticket_status', ticket_id=t.id) }}">
+          <button type="submit" class="secondary small">{{ 'Close' if t.status == 'Open' else 'Reopen' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('ticket_delete', ticket_id=t.id) }}" onsubmit="return confirm('Remove this ticket from the device?');">
+          <button type="submit" class="secondary small">Remove</button>
+        </form>
+      </div></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+<form method="post" action="{{ url_for('ticket_add', device_id=device.id) }}" class="inline-form ticket-form">
+  <input name="ticket_number" placeholder="Ticket number" aria-label="Ticket number" class="mono" size="12">
+  <input type="date" name="opened_on" value="{{ today() }}" aria-label="Date opened">
+  <input name="summary" placeholder="Short summary, e.g. cracked screen" aria-label="Summary" class="grow">
+  <button type="submit">Log ticket</button>
+</form>
+
 <h2>History</h2>
 {% if history %}
 <table class="history">
@@ -29,6 +70,7 @@
       <td>{{ h.changed_at }}</td>
       <td>
         {% if h.field == 'created' %}Added to inventory{% if h.new_value %} at {{ h.new_value }}{% endif %}
+        {% elif h.field == 'ticket' %}{% if h.old_value %}{{ h.old_value }} {% endif %}{{ h.new_value }}
         {% else %}<strong>{{ FIELD_LABELS.get(h.field, h.field) }}</strong>: {{ h.old_value or '(blank)' }} → {{ h.new_value or '(blank)' }}{% endif %}
       </td>
     </tr>

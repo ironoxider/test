@@ -25,8 +25,13 @@
   <a class="stat" href="{{ url_for('index', sort='warranty_expires') }}"><strong>{{ stats.out_of_warranty or 0 }}</strong><span>Out of warranty</span></a>
   <a class="stat {% if overdue or soon %}alert{% endif %}" href="{{ url_for('index', replace='due', sort='replacement_date') }}">
     <strong>{{ overdue + soon }}</strong><span>Due for replacement{% if overdue %} ({{ overdue }} overdue){% endif %}</span></a>
+  <a class="stat {% if open_ticket_devices %}alert{% endif %}" href="{{ url_for('index', tickets='open') }}">
+    <strong>{{ open_ticket_devices }}</strong><span>With open tickets</span></a>
 </section>
 
+{% if args.get('tickets') == 'open' %}
+<p class="flash warn">Showing devices with open help desk tickets. <a href="{{ url_for('index') }}">Show all devices</a></p>
+{% endif %}
 {% if args.get('replace') == 'due' %}
 <p class="flash warn">Showing devices that are past their replacement date or due within {{ reminder_days }} days
   (retired and lost devices are left out). <a href="{{ url_for('index') }}">Show all devices</a></p>
@@ -50,6 +55,7 @@
     {% for s in STATUSES %}<option {% if args.get('status') == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
   </select>
   {% if args.get('replace') %}<input type="hidden" name="replace" value="{{ args.get('replace') }}">{% endif %}
+  {% if args.get('tickets') %}<input type="hidden" name="tickets" value="{{ args.get('tickets') }}">{% endif %}
   <button type="submit">Filter</button>
   <a href="{{ url_for('index') }}">Clear</a>
   <a class="right" href="{{ url_for('export_csv', **args) }}">Export CSV</a>
@@ -71,6 +77,7 @@
       <th>{{ sort_link('status', 'Status') }}</th>
       <th>{{ sort_link('warranty_expires', 'Warranty') }}</th>
       <th>{{ sort_link('replacement_date', 'Replace by') }}</th>
+      <th>{{ sort_link('tickets', 'Tickets') }}</th>
     </tr>
   </thead>
   <tbody>
@@ -88,6 +95,7 @@
       <td class="{% if d.warranty_expires and d.warranty_expires < today() %}expired{% endif %}">{{ d.warranty_expires or '' }}</td>
       {% set active = d.status not in ('Retired', 'Lost') %}
       <td class="{% if active and d.replacement_date and d.replacement_date < today() %}expired{% elif active and d.replacement_date and d.replacement_date <= soon_date %}due-soon{% endif %}">{{ d.replacement_date or '' }}</td>
+      <td>{% if d.ticket_count %}<a href="{{ url_for('device_view', device_id=d.id) }}#tickets">{{ d.ticket_count }}{% if d.open_tickets %} <span class="badge ticket-open">{{ d.open_tickets }} open</span>{% endif %}</a>{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>

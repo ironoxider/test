@@ -48,3 +48,17 @@ CREATE TABLE IF NOT EXISTS options (
     sort_order INTEGER NOT NULL DEFAULT 0,
     UNIQUE (kind, name)
 );
+
+-- Help desk tickets (e.g. Spiceworks) logged against a device.
+CREATE TABLE IF NOT EXISTS tickets (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id     INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    ticket_number TEXT,
+    opened_on     TEXT NOT NULL,
+    summary       TEXT,
+    status        TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'Closed')),
+    closed_on     TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_device ON tickets(device_id);

@@ -25,6 +25,11 @@ is no database server to set up.
   Barcodes are read right in the browser (free, and works offline). If an Anthropic API key is set,
   **Read label with AI** also reads the printed text and fills in the manufacturer, model, model number,
   serial number and category.
+- **Help desk tickets** (e.g. Spiceworks): log ticket numbers against a device, with the date, a short summary
+  and open/closed status. The Devices page counts devices with open tickets, and searching for a ticket number
+  finds its device. In **Settings → Help desk**, enter your help desk's ticket email address to get a
+  **Report a problem** button on each device that opens an email with the device's details filled in. Optionally,
+  enter the ticket web address (with `{number}` where the ticket number goes) so ticket numbers link to the ticket.
 - **CSV export and import**: export the current filtered view. When you import, a row whose asset
   tag already exists updates that device, and any other row adds a new one.
 
