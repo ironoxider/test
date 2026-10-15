@@ -122,3 +122,15 @@ th, td { padding: 8px 8px; }
 .tickets .row-actions { display: flex; gap: 6px; }
 .badge.ticket-open { background: color-mix(in srgb, var(--warn) 18%, var(--panel)); color: var(--warn); }
 .badge.ticket-closed { opacity: 0.75; }
+
+/* Batches */
+.tracking { display: flex; flex-direction: column; gap: 4px; }
+.device-form:not(.is-batch) .batch-only, .device-form.is-batch .single-only { display: none; }
+.quantity-box { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between;
+  max-width: 900px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 18px; margin-bottom: 14px; }
+.quantity-box strong { font-size: 1.6em; }
+.quantity-box.low { border-color: var(--warn); }
+.quantity-box .inline-form { margin: 0; }
+.qty-input { width: 5.5em !important; }
+.badge.low-stock { color: var(--warn); margin-left: 6px; }

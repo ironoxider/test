@@ -109,10 +109,32 @@
       settings). For the web address, open any ticket in Spiceworks, copy the address from the browser and replace
       the ticket number with <code>{number}</code>; ticket numbers on device pages then link straight to the ticket.</p>
   </fieldset>
-  <fieldset>
-    <legend>Your data</legend>
-    <p class="wide">All devices are stored in this file. Copy it somewhere safe to back up:<br>
-      <code class="mono">{{ db_path }}</code></p>
+  <fieldset id="backups">
+    <legend>Your data &amp; backups</legend>
+    <p class="wide">All devices, tickets and history are stored in this file, and newer versions of Device Inventory
+      keep using it:<br><code class="mono">{{ db_path }}</code></p>
+    {% if data_move and data_move[0] == 'moved' %}
+    <p class="wide flash success">Your inventory was moved here from the app's folder so that newer versions find it.
+      The old copy was kept as <code class="mono">{{ data_move[1] }}.moved</code>; you can delete it once you've
+      checked everything is here.</p>
+    {% elif data_move %}
+    <p class="wide flash warn">There is also an older inventory file in the app's folder:
+      <code class="mono">{{ data_move[1] }}</code>. It was left alone because the file above already existed. If that
+      older file is the one you want, close Device Inventory and copy it over the file above.</p>
+    {% endif %}
+    <label class="wide">Backup folder
+      <input name="backup_dir" value="{{ backup_dir }}" placeholder="e.g. C:\Users\you\Google Drive\My Drive\Inventory backups" spellcheck="false">
+    </label>
+    <div class="wide actions">
+      <button type="submit" formaction="{{ url_for('backup_now') }}" class="secondary">Back up now</button>
+      <a class="button secondary" href="{{ url_for('backup_download') }}">Download a backup</a>
+    </div>
+    <p class="wide muted">{% if last_backup %}Last backup: {{ last_backup }} to <code class="mono">{{ last_backup_path }}</code>.
+      {% else %}No backup made from here yet.{% endif %}
+      <strong>Back up now</strong> saves a dated .zip in the backup folder; a Google Drive folder on this computer
+      makes it an offsite copy. <strong>Download a backup</strong> saves the same .zip through your browser instead.
+      Each .zip has the inventory, your settings (without the API key) and restore instructions.
+      Don't keep the live inventory file itself in a synced folder.</p>
   </fieldset>
   <div class="actions"><button type="submit">Save settings</button></div>
 </form>

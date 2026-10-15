@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS locations (
 
 CREATE TABLE IF NOT EXISTS devices (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    asset_tag        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    asset_tag        TEXT UNIQUE COLLATE NOCASE,  -- optional for batches
     name             TEXT NOT NULL,
     category         TEXT,
     manufacturer     TEXT,
@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS devices (
     warranty_expires TEXT,
     replacement_date TEXT,
     notes            TEXT,
+    is_batch         INTEGER NOT NULL DEFAULT 0,  -- 1 = identical items counted by quantity
+    quantity         INTEGER NOT NULL DEFAULT 1,
+    min_quantity     INTEGER,                     -- reorder below this (batches)
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -9,11 +9,14 @@ Run with:  python app.py   (then open http://127.0.0.1:5000)
 import csv
 import io
 import ipaddress
-import re
+import json
 import os
+import re
 import sqlite3
+import tempfile
 import urllib.parse
-from datetime import date, timedelta
+import zipfile
+from datetime import date, datetime, timedelta
 
 from flask import (
     Flask,
@@ -67,8 +70,10 @@ DEVICE_FIELDS = [
     ("warranty_expires", "Warranty Expires"),
     ("replacement_date", "Replace By"),
     ("notes", "Notes"),
+    ("quantity", "Quantity"),
+    ("min_quantity", "Reorder below"),
 ]
-FIELD_LABELS = dict(DEVICE_FIELDS, location="Location")
+FIELD_LABELS = dict(DEVICE_FIELDS, location="Location", is_batch="Tracked as")
 CSV_COLUMNS = [f for f, _ in DEVICE_FIELDS[:8]] + ["location"] + [f for f, _ in DEVICE_FIELDS[8:]]
 DATE_FIELDS = ("manufacture_date", "purchase_date", "warranty_expires", "replacement_date")
 DEFAULT_LIFESPAN_YEARS = 3
@@ -90,6 +95,7 @@ SORTABLE = {
     "warranty_expires": "d.warranty_expires",
     "replacement_date": "d.replacement_date",
     "tickets": "ticket_count",
+    "quantity": "d.quantity",
 }
 
 
@@ -102,6 +108,9 @@ def create_app(test_config=None):
     app.config.update(DATABASE=app_settings.default_db_path(), MAX_CONTENT_LENGTH=25 * 1024 * 1024)
     if test_config:
         app.config.update(test_config)
+    elif not (os.environ.get("INVENTORY_DB") or os.environ.get("INVENTORY_DATA_DIR")):
+        app.config["DATA_MOVE"] = app_settings.move_data_from_app_folder(
+            os.path.dirname(app.config["DATABASE"]))
     os.makedirs(os.path.dirname(os.path.abspath(app.config["DATABASE"])), exist_ok=True)
     app.config.setdefault("SETTINGS_PATH", app_settings.settings_path(app.config["DATABASE"]))
     if not app.config.get("SECRET_KEY"):
@@ -121,6 +130,7 @@ def create_app(test_config=None):
 
     app.jinja_env.globals.update(
         FIELD_LABELS=FIELD_LABELS,
+        device_label=device_label,
         NEW_OPTION=NEW_OPTION,
         APP_VERSION=app_settings.APP_VERSION,
         ai_enabled=lambda: photo_extract.is_configured(saved_api_key()),
@@ -151,12 +161,15 @@ def close_db(_exc=None):
 
 def init_db():
     db = get_db()
-    columns = {r["name"] for r in db.execute("PRAGMA table_info(devices)")}
+    with open(os.path.join(app_settings.RESOURCE_DIR, "schema.sql")) as f:
+        schema = f.read()
+    columns = {r["name"]: r for r in db.execute("PRAGMA table_info(devices)")}
     for column in ("manufacture_date", "replacement_date"):
         if columns and column not in columns:  # database from an older version
             db.execute(f"ALTER TABLE devices ADD COLUMN {column} TEXT")
-    with open(os.path.join(app_settings.RESOURCE_DIR, "schema.sql")) as f:
-        db.executescript(f.read())
+    if columns and (columns["asset_tag"]["notnull"] or "is_batch" not in columns):
+        upgrade_devices_table(db, schema)
+    db.executescript(schema)
     defaults = {"category": DEFAULT_CATEGORIES, "status": DEFAULT_STATUSES}
     for kind, names in defaults.items():
         if db.execute("SELECT 1 FROM options WHERE kind = ?", (kind,)).fetchone():
@@ -167,6 +180,36 @@ def init_db():
         for name in names + used:
             ensure_option(db, kind, name)
     db.commit()
+
+
+def upgrade_devices_table(db, schema):
+    """Rebuild the devices table for batches (asset tag optional, quantity columns).
+
+    SQLite can't drop a NOT NULL constraint in place, so the table is copied. Foreign keys
+    are off meanwhile so dropping the old table doesn't cascade to history and tickets.
+    """
+    ddl = re.search(r"CREATE TABLE IF NOT EXISTS devices \(.*?\n\);", schema, re.S).group(0)
+    ddl = ddl.replace("CREATE TABLE IF NOT EXISTS devices", "CREATE TABLE devices_upgrade")
+    old_columns = [r["name"] for r in db.execute("PRAGMA table_info(devices)")]
+    new_columns = re.findall(r"^\s{4}(\w+)\s", ddl, re.M)
+    common = ", ".join(c for c in old_columns if c in new_columns)
+    db.commit()
+    db.execute("PRAGMA foreign_keys = OFF")
+    try:
+        db.executescript(f"""
+            BEGIN;
+            DROP TABLE IF EXISTS devices_upgrade;
+            {ddl}
+            INSERT INTO devices_upgrade ({common}) SELECT {common} FROM devices;
+            DROP TABLE devices;
+            ALTER TABLE devices_upgrade RENAME TO devices;
+            COMMIT;
+        """)
+    except sqlite3.Error:
+        db.rollback()
+        raise
+    finally:
+        db.execute("PRAGMA foreign_keys = ON")
 
 
 def app_setting(key, default):
@@ -233,6 +276,10 @@ def is_this_computer(addr):
     return addr in app_settings.lan_addresses()
 
 
+# Pages that can only be opened on the computer running the app.
+LOCAL_ONLY = {"settings", "backup_download", "backup_now"}
+
+
 def check_remote_access():
     """Turn away other devices unless phone access is on; Settings stay local-only."""
     from flask import current_app
@@ -242,7 +289,7 @@ def check_remote_access():
     allowed = app_settings.load(current_app.config["SETTINGS_PATH"]).get("allow_network", False)
     if not allowed:
         return render_template("remote_blocked.html", reason="off"), 403
-    if request.endpoint == "settings":
+    if request.endpoint in LOCAL_ONLY:
         return render_template("remote_blocked.html", reason="settings"), 403
     return None
 
@@ -287,8 +334,17 @@ def location_name(db, location_id):
 
 def validate_device(data, db, device_id=None):
     errors = []
-    if not data.get("asset_tag"):
-        errors.append("Asset tag is required.")
+    if data.get("is_batch"):
+        for field, low in (("quantity", 0), ("min_quantity", 0)):
+            value = data.get(field)
+            if value is None and field == "quantity":
+                errors.append("Quantity is required for a batch.")
+            elif value is not None and (not isinstance(value, int) or value < low):
+                errors.append(f"{FIELD_LABELS[field]} must be a whole number (0 or more).")
+    else:
+        data["quantity"], data["min_quantity"] = 1, None
+        if not data.get("asset_tag"):
+            errors.append("Asset tag is required (or choose \"A batch of identical items\").")
     if not data.get("name"):
         errors.append("Name is required.")
     statuses = list_options(db, "status")
@@ -315,7 +371,8 @@ def save_device(db, data, device_id=None):
 
     `data` holds DEVICE_FIELDS plus `location_id`. Returns the device id.
     """
-    columns = [f for f, _ in DEVICE_FIELDS] + ["location_id"]
+    columns = [f for f, _ in DEVICE_FIELDS] + ["location_id", "is_batch"]
+    data["is_batch"] = 1 if data.get("is_batch") else 0
     if device_id is None:
         cur = db.execute(
             f"INSERT INTO devices ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
@@ -379,6 +436,8 @@ def query_devices(db, args):
         where.append("d.replacement_date IS NOT NULL AND d.replacement_date <= date('now', ?) "
                      f"AND d.status NOT IN ({', '.join('?' * len(INACTIVE_STATUSES))})")
         params += [f"+{reminder_days()} days", *INACTIVE_STATUSES]
+    if args.get("stock") == "low":
+        where.append("d.is_batch = 1 AND d.min_quantity IS NOT NULL AND d.quantity < d.min_quantity")
     if args.get("tickets") == "open":
         where.append("EXISTS (SELECT 1 FROM tickets t WHERE t.device_id = d.id AND t.status = 'Open')")
     for field in ("status", "category"):
@@ -407,8 +466,29 @@ def assigned_people(db):
         "GROUP BY assigned_to COLLATE NOCASE ORDER BY assigned_to COLLATE NOCASE")]
 
 
+def to_int(value):
+    """Whole number from a form or CSV value; the text itself if it isn't one (for errors)."""
+    value = clean(value)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
+def device_label(device):
+    """How a device is named in headings and messages: its asset tag, or the batch's name."""
+    if device["asset_tag"]:
+        return device["asset_tag"]
+    return f"{device['name']} (batch)"
+
+
 def form_to_device(form, db):
     data = {f: clean(form.get(f)) for f, _ in DEVICE_FIELDS}
+    data["is_batch"] = form.get("tracking") == "batch"
+    data["quantity"] = to_int(form.get("quantity"))
+    data["min_quantity"] = to_int(form.get("min_quantity"))
     # A name typed into "+ Add new…" becomes a new list entry (undone if the save fails).
     for kind in OPTION_KINDS:
         if data[kind] == NEW_OPTION:
@@ -425,6 +505,46 @@ def form_to_device(form, db):
     else:
         data["location_id"] = None
     return data
+
+
+# ---------------------------------------------------------------- backups
+
+RESTORE_NOTE = """Device Inventory backup, made {made}.
+
+To restore it:
+1. Close Device Inventory.
+2. Copy inventory.db (and settings.json, if you want the settings back) into the data folder
+   shown on the Settings page, normally Documents/Device Inventory. Replace the files there.
+3. Open Device Inventory.
+
+settings.json leaves out the Anthropic API key; enter it again in Settings if needed.
+"""
+
+
+def backup_bytes(db_path, settings_file):
+    """A zip with a consistent copy of the database, the settings, and restore steps."""
+    with tempfile.TemporaryDirectory() as tmp:
+        copy_path = os.path.join(tmp, "inventory.db")
+        src, dst = sqlite3.connect(db_path), sqlite3.connect(copy_path)
+        try:
+            src.backup(dst)  # safe while the app is running
+        finally:
+            dst.close()
+            src.close()
+        settings = app_settings.load(settings_file)
+        settings.pop("anthropic_api_key", None)
+        settings.pop("secret_key", None)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(copy_path, "inventory.db")
+            z.writestr("settings.json", json.dumps(settings, indent=2))
+            z.writestr("How to restore.txt",
+                       RESTORE_NOTE.format(made=datetime.now().strftime("%Y-%m-%d %H:%M")))
+        return buf.getvalue()
+
+
+def backup_filename():
+    return f"Device Inventory backup {datetime.now():%Y-%m-%d %H%M}.zip"
 
 
 # ---------------------------------------------------------------- help desk tickets
@@ -451,6 +571,7 @@ def report_problem_mailto(device):
     make_model = " ".join(filter(None, [device["manufacturer"], device["model"]]))
     details = [
         ("Asset tag", device["asset_tag"]), ("Name", device["name"]),
+        ("Quantity", device["quantity"] if device["is_batch"] else None),
         ("Category", device["category"]), ("Make / model", make_model),
         ("Model number", device["model_number"]), ("Serial number", device["serial_number"]),
         ("Location", device["location"]), ("Assigned to", device["assigned_to"]),
@@ -460,7 +581,8 @@ def report_problem_mailto(device):
     body = ("Describe the problem here:\n\n\n\n"
             "-- Device details (from Device Inventory) --\n"
             + "\n".join(f"{label}: {value}" for label, value in details if value))
-    subject = f"Problem with {device['asset_tag']}" + (f" ({device['name']})" if device["name"] else "")
+    subject = (f"Problem with {device['asset_tag']} ({device['name']})" if device["asset_tag"]
+               else f"Problem with {device['name']}")
     query = urllib.parse.urlencode({"subject": subject, "body": body}, quote_via=urllib.parse.quote)
     return f"mailto:{urllib.parse.quote(address, safe='@')}?{query}"
 
@@ -497,6 +619,9 @@ def register_routes(app):
             " FROM devices",
             [*INACTIVE_STATUSES, *INACTIVE_STATUSES, f"+{reminder_days()} days", *INACTIVE_STATUSES],
         ).fetchone()
+        low_stock = db.execute(
+            "SELECT COUNT(*) FROM devices WHERE is_batch = 1 AND min_quantity IS NOT NULL "
+            "AND quantity < min_quantity").fetchone()[0]
         open_ticket_devices = db.execute(
             "SELECT COUNT(DISTINCT device_id) FROM tickets WHERE status = 'Open'").fetchone()[0]
         counts = dict(db.execute("SELECT status, COUNT(*) FROM devices GROUP BY status").fetchall())
@@ -504,7 +629,7 @@ def register_routes(app):
         return render_template(
             "index.html", devices=devices, locations=locations, stats=stats,
             status_counts=status_counts, args=request.args, reminder_days=reminder_days(),
-            open_ticket_devices=open_ticket_devices,
+            open_ticket_devices=open_ticket_devices, low_stock=low_stock,
             soon_date=(date.today() + timedelta(days=reminder_days())).isoformat(),
         )
 
@@ -519,7 +644,7 @@ def register_routes(app):
             if not errors:
                 device_id = save_device(db, device)
                 db.commit()
-                flash(f"Added {device['asset_tag']}.", "success")
+                flash(f"Added {device_label(device)}.", "success")
                 if request.form.get("add_another"):
                     return redirect(url_for("device_new"))
                 return redirect(url_for("device_view", device_id=device_id))
@@ -592,6 +717,29 @@ def register_routes(app):
         db.commit()
         return redirect(url_for("device_view", device_id=ticket["device_id"]) + "#tickets")
 
+    @app.route("/devices/<int:device_id>/quantity", methods=["POST"])
+    def device_quantity(device_id):
+        """Add to or take from a batch's quantity, e.g. "took out 3 chargers"."""
+        db = get_db()
+        device = db.execute("SELECT * FROM devices WHERE id = ?", (device_id,)).fetchone()
+        if device is None or not device["is_batch"]:
+            abort(404)
+        amount = to_int(request.form.get("amount"))
+        if not isinstance(amount, int) or amount <= 0:
+            flash("Enter how many to add or take out (a whole number above 0).", "error")
+            return redirect(url_for("device_view", device_id=device_id))
+        change = amount if request.form.get("action") == "add" else -amount
+        new = device["quantity"] + change
+        if new < 0:
+            flash(f"Only {device['quantity']} on hand, so you can't take out {amount}.", "error")
+            return redirect(url_for("device_view", device_id=device_id))
+        data = dict(device)
+        data["quantity"] = new
+        save_device(db, data, device_id)
+        db.commit()
+        flash(f"{'Added' if change > 0 else 'Took out'} {amount}. Now {new} on hand.", "success")
+        return redirect(url_for("device_view", device_id=device_id))
+
     @app.route("/tickets/<int:ticket_id>/delete", methods=["POST"])
     def ticket_delete(ticket_id):
         db, ticket = get_db(), get_ticket(ticket_id)
@@ -627,12 +775,12 @@ def register_routes(app):
     @app.route("/devices/<int:device_id>/delete", methods=["POST"])
     def device_delete(device_id):
         db = get_db()
-        row = db.execute("SELECT asset_tag FROM devices WHERE id = ?", (device_id,)).fetchone()
+        row = db.execute("SELECT asset_tag, name FROM devices WHERE id = ?", (device_id,)).fetchone()
         if row is None:
             abort(404)
         db.execute("DELETE FROM devices WHERE id = ?", (device_id,))
         db.commit()
-        flash(f"Deleted {row['asset_tag']}.", "success")
+        flash(f"Deleted {device_label(row)}.", "success")
         return redirect(url_for("index"))
 
     @app.route("/locations", methods=["GET", "POST"])
@@ -744,6 +892,15 @@ def register_routes(app):
                           "the ticket number goes.", "error")
                     return redirect(url_for("settings") + "#helpdesk")
                 changes["ticket_url"] = pattern
+            if "backup_dir" in request.form:
+                folder = clean(request.form.get("backup_dir"))
+                if folder:
+                    folder = os.path.abspath(os.path.expanduser(folder))
+                    if not os.path.isdir(folder):
+                        flash(f"The backup folder {folder} doesn't exist. Create it first, or copy the "
+                              "address of an existing folder.", "error")
+                        return redirect(url_for("settings") + "#backups")
+                changes["backup_dir"] = folder
             new_key = clean(request.form.get("anthropic_api_key"))
             if request.form.get("remove_key"):
                 changes["anthropic_api_key"] = None
@@ -774,10 +931,41 @@ def register_routes(app):
             lifespan_years=data.get("lifespan_years", DEFAULT_LIFESPAN_YEARS),
             reminder_days=data.get("reminder_days", DEFAULT_REMINDER_DAYS),
             helpdesk_email=data.get("helpdesk_email") or "",
+            backup_dir=data.get("backup_dir") or "",
+            last_backup=data.get("last_backup"),
+            last_backup_path=data.get("last_backup_path"),
+            data_move=app.config.get("DATA_MOVE"),
             ticket_url=data.get("ticket_url") or "",
             db_path=os.path.abspath(app.config["DATABASE"]),
             phone=phone_access_info(app),
         )
+
+    @app.route("/backup/download")
+    def backup_download():
+        data = backup_bytes(app.config["DATABASE"], app.config["SETTINGS_PATH"])
+        return Response(data, mimetype="application/zip", headers={
+            "Content-Disposition": f'attachment; filename="{backup_filename()}"'})
+
+    @app.route("/backup/now", methods=["POST"])
+    def backup_now():
+        # The button sits in the Settings form, so a folder typed but not yet saved counts too.
+        folder = clean(request.form.get("backup_dir")) or app_setting("backup_dir", None)
+        folder = os.path.abspath(os.path.expanduser(folder)) if folder else None
+        if not folder or not os.path.isdir(folder):
+            flash("Enter a backup folder that exists first (for example your Google Drive folder).", "error")
+            return redirect(url_for("settings") + "#backups")
+        path = os.path.join(folder, backup_filename())
+        try:
+            data = backup_bytes(app.config["DATABASE"], app.config["SETTINGS_PATH"])
+            with open(path, "wb") as f:
+                f.write(data)
+        except OSError as e:
+            flash(f"Couldn't save the backup there: {e.strerror or e}.", "error")
+            return redirect(url_for("settings") + "#backups")
+        app_settings.update(app.config["SETTINGS_PATH"], backup_dir=folder, last_backup_path=path,
+                            last_backup=datetime.now().strftime("%Y-%m-%d %H:%M"))
+        flash(f"Backed up to {path}", "success")
+        return redirect(url_for("settings") + "#backups")
 
     @app.route("/lists")
     def lists():
@@ -911,24 +1099,37 @@ def import_rows(db, reader):
         if key in CSV_COLUMNS:
             header_map[h] = key
     result = {"added": 0, "updated": 0, "errors": []}
-    if "asset_tag" not in header_map.values():
-        result["errors"].append("CSV must have an 'asset_tag' column.")
+    if not {"asset_tag", "name"} & set(header_map.values()):
+        result["errors"].append("CSV must have an 'asset_tag' column (or 'name' for batches).")
         return result
 
     for line_no, raw in enumerate(reader, start=2):
         row = {key: clean(raw.get(h)) for h, key in header_map.items()}
         if not any(row.values()):
             continue
+        for key in ("quantity", "min_quantity"):
+            if key in row:
+                row[key] = to_int(row[key])
         existing = None
         if row.get("asset_tag"):
             existing = db.execute(
                 "SELECT * FROM devices WHERE asset_tag = ?", (row["asset_tag"],)
+            ).fetchone()
+        elif row.get("name"):
+            # A batch has no asset tag, so it's matched by name and location.
+            existing = db.execute(
+                "SELECT d.* FROM devices d LEFT JOIN locations l ON l.id = d.location_id "
+                "WHERE d.asset_tag IS NULL AND d.name = ? COLLATE NOCASE "
+                "AND ((? IS NULL AND d.location_id IS NULL) OR l.name = ? COLLATE NOCASE)",
+                (row["name"], row.get("location"), row.get("location")),
             ).fetchone()
         # Start from the existing record so columns missing from the CSV are kept.
         data = dict(existing) if existing else {}
         for key, value in row.items():
             if key != "location" and (value is not None or not existing):
                 data[key] = value
+        counted = row.get("quantity") not in (None, 1)
+        data["is_batch"] = (existing["is_batch"] if existing else not row.get("asset_tag")) or counted
         statuses = list_options(db, "status")
         data["status"] = find_option(db, "status", data.get("status") or statuses[0]) or data["status"]
         if data.get("category"):

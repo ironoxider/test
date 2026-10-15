@@ -25,6 +25,13 @@ is no database server to set up.
   Barcodes are read right in the browser (free, and works offline). If an Anthropic API key is set,
   **Read label with AI** also reads the printed text and fills in the manufacturer, model, model number,
   serial number and category.
+- **Batches**: besides individual devices with asset tags, add a batch of identical items counted by quantity
+  (chargers, mice, cables). The asset tag is optional for a batch. Use **Take out** and **Add** on its page to change
+  the count (each change goes in the history), and set a reorder level to see **Low stock** on the Devices page.
+  In a CSV, a row with no asset tag is a batch, matched by name and location.
+- **Backups**: in **Settings → Your data & backups**, **Back up now** saves a dated .zip (inventory, settings without
+  the API key, and restore steps) to a folder you choose, such as a Google Drive folder. **Download a backup**
+  saves the same file through the browser.
 - **Help desk tickets** (e.g. Spiceworks): log ticket numbers against a device, with the date, a short summary
   and open/closed status. The Devices page counts devices with open tickets, and searching for a ticket number
   finds its device. In **Settings → Help desk**, enter your help desk's ticket email address to get a
@@ -78,7 +85,7 @@ tick **"Add python.exe to PATH"** in the installer).
 The start scripts install the app's add-ons into a private `.venv` folder, so you don't need to run
 `pip` yourself. Running `python app.py` directly without doing that causes "No module named ..." errors.
 
-When run from source, the data is stored in `inventory.db` in the app's folder.
+When run from source the data is in the same place, **Documents/Device Inventory**, so unzipping a newer version somewhere else keeps your data. (Versions before 1.8 kept it in the app's folder; the first start of a newer version moves it, and leaves the old file renamed to `inventory.db.moved`.)
 
 ### Building the program yourself
 

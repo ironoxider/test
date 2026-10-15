@@ -7,3 +7,5 @@ inventory.db
 build/
 dist/
 settings.json
+inventory.db.moved
+settings.json.moved

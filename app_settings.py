@@ -3,13 +3,14 @@
 import json
 import os
 import secrets
+import shutil
 import socket
 import sys
 import time
 
 # Shown at the bottom of every page; bump it with each release so people can tell
 # which version they're running (and so the launcher can spot an older copy).
-APP_VERSION = "1.7"
+APP_VERSION = "1.8"
 
 FROZEN = getattr(sys, "frozen", False)  # True when running as a packaged (PyInstaller) app
 
@@ -46,18 +47,42 @@ def lan_addresses():
 
 
 def default_data_dir():
-    """Folder for the database and settings.
+    """Folder for the database and settings: "Documents/Device Inventory".
 
-    When running from source this is the project folder. The packaged app uses
-    "Documents/Device Inventory" so the data is easy to find and back up.
+    Both the packaged app and the start scripts use it, so the data stays put when a newer
+    version is downloaded and is easy to find and back up.
     """
     if os.environ.get("INVENTORY_DATA_DIR"):
         return os.environ["INVENTORY_DATA_DIR"]
-    if not FROZEN:
-        return RESOURCE_DIR
     home = os.path.expanduser("~")
     documents = os.path.join(home, "Documents")
     return os.path.join(documents if os.path.isdir(documents) else home, "Device Inventory")
+
+
+def move_data_from_app_folder(data_dir):
+    """Versions before 1.8 run from the start scripts kept their data in the app's own folder.
+
+    Move it to `data_dir` the first time a newer version starts. The old files are renamed
+    (not deleted) so nothing is lost. Returns (outcome, old database path) or None, where
+    outcome is "moved", or "both" if `data_dir` already had a database (nothing is moved).
+    """
+    if FROZEN:
+        return None
+    old_db = os.path.join(RESOURCE_DIR, "inventory.db")
+    new_db = os.path.join(data_dir, "inventory.db")
+    if not os.path.exists(old_db) or os.path.abspath(old_db) == os.path.abspath(new_db):
+        return None
+    if os.path.exists(new_db):
+        return ("both", old_db)
+    os.makedirs(data_dir, exist_ok=True)
+    shutil.copy2(old_db, new_db)
+    old_settings = os.path.join(RESOURCE_DIR, "settings.json")
+    new_settings = os.path.join(data_dir, "settings.json")
+    if os.path.exists(old_settings) and not os.path.exists(new_settings):
+        shutil.copy2(old_settings, new_settings)
+        os.replace(old_settings, old_settings + ".moved")
+    os.replace(old_db, old_db + ".moved")
+    return ("moved", old_db)
 
 
 def default_db_path():

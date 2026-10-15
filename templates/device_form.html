@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }} · Device Inventory{% endblock %}
+{% block title %}{{ 'Add device' if new else 'Edit ' ~ device_label(device) }} · Device Inventory{% endblock %}
 {% block content %}
-<h1>{{ 'Add device' if new else 'Edit ' ~ device.asset_tag }}</h1>
+<h1>{{ 'Add device' if new else 'Edit ' ~ device_label(device) }}</h1>
 {% if errors %}
   <div class="flash error"><ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>
 {% endif %}
@@ -30,7 +30,14 @@
 <form method="post" class="device-form">
   <fieldset>
     <legend>Identification</legend>
-    <label>Asset tag *<input name="asset_tag" value="{{ device.asset_tag or '' }}" required></label>
+    <div class="wide tracking" role="radiogroup" aria-label="How is this tracked?">
+      <label class="checkbox"><input type="radio" name="tracking" value="single" {% if not device.is_batch %}checked{% endif %}>
+        One device with its own asset tag</label>
+      <label class="checkbox"><input type="radio" name="tracking" value="batch" {% if device.is_batch %}checked{% endif %}>
+        A batch of identical items, counted by quantity (e.g. 40 chargers, 25 mice)</label>
+    </div>
+    <label><span>Asset tag<span class="single-only"> *</span><span class="batch-only"> (optional)</span></span>
+      <input name="asset_tag" value="{{ device.asset_tag or '' }}"></label>
     <label>Name *<input name="name" value="{{ device.name or '' }}" placeholder="e.g. Room 204 teacher laptop" required></label>
     <label>Category
       <select name="category" data-new-option="category">
@@ -48,6 +55,13 @@
       </select>
     </label>
     <p class="wide muted small-note"><a href="{{ url_for('lists') }}" target="_blank">Edit the category and status lists</a></p>
+  </fieldset>
+  <fieldset class="batch-only">
+    <legend>Quantity</legend>
+    <label>Quantity on hand *<input type="number" name="quantity" min="0" step="1" value="{{ device.quantity if device.quantity is not none else '' }}"></label>
+    <label>Reorder below<input type="number" name="min_quantity" min="0" step="1" value="{{ device.min_quantity if device.min_quantity is not none else '' }}" placeholder="optional"></label>
+    <p class="wide muted small-note">For a batch, the serial number, assigned person and dates describe the whole batch.
+      If the quantity drops below the reorder level, the Devices page tells you.</p>
   </fieldset>
   <fieldset>
     <legend>Hardware</legend>

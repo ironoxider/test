@@ -37,6 +37,24 @@
     });
   });
 
+  // ---------------------------------------------------- batch or single device
+
+  // "A batch of identical items" shows the quantity fields and makes the asset tag optional.
+  function showTracking() {
+    const batch = form.querySelector('input[name="tracking"][value="batch"]');
+    const isBatch = !!(batch && batch.checked);
+    form.classList.toggle("is-batch", isBatch);
+    if (form.elements["asset_tag"]) form.elements["asset_tag"].required = !isBatch;
+    if (form.elements["quantity"]) {
+      form.elements["quantity"].required = isBatch;
+      if (isBatch && !form.elements["quantity"].value) form.elements["quantity"].value = "1";
+    }
+  }
+  form.querySelectorAll('input[name="tracking"]').forEach(function (r) {
+    r.addEventListener("change", showTracking);
+  });
+  showTracking();
+
   // ---------------------------------------------------- "Replace by" date
 
   const replace = form.elements["replacement_date"];

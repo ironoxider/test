@@ -1,17 +1,31 @@
 {% extends "base.html" %}
-{% block title %}{{ device.asset_tag }} · Device Inventory{% endblock %}
+{% block title %}{{ device_label(device) }} · Device Inventory{% endblock %}
 {% block content %}
 <div class="heading">
-  <h1>{{ device.asset_tag }} <small>{{ device.name }}</small></h1>
+  <h1>{% if device.asset_tag %}{{ device.asset_tag }} <small>{{ device.name }}</small>{% else %}{{ device.name }} <small>batch</small>{% endif %}</h1>
   <div class="actions">
     {% if report_mailto %}<a class="button secondary" href="{{ report_mailto }}">Report a problem</a>{% endif %}
     <a class="button" href="{{ url_for('device_edit', device_id=device.id) }}">Edit</a>
-    <form method="post" action="{{ url_for('device_delete', device_id=device.id) }}" onsubmit="return confirm('Delete {{ device.asset_tag }}? This cannot be undone.');">
+    <form method="post" action="{{ url_for('device_delete', device_id=device.id) }}" onsubmit="return confirm({{ ('Delete ' ~ device_label(device) ~ '? This cannot be undone.')|tojson|forceescape }});">
       <button type="submit" class="danger">Delete</button>
     </form>
   </div>
 </div>
+{% if device.is_batch %}
+{% set low = device.min_quantity is not none and device.quantity < device.min_quantity %}
+<section class="quantity-box {{ 'low' if low }}">
+  <div><strong>{{ device.quantity }}</strong> on hand{% if device.min_quantity is not none %}
+    <span class="muted">· reorder below {{ device.min_quantity }}</span>{% endif %}
+    {% if low %}<span class="badge low-stock">Low stock</span>{% endif %}</div>
+  <form method="post" action="{{ url_for('device_quantity', device_id=device.id) }}" class="inline-form">
+    <input type="number" name="amount" min="1" step="1" value="1" aria-label="How many" class="qty-input">
+    <button type="submit" name="action" value="remove" class="secondary">Take out</button>
+    <button type="submit" name="action" value="add" class="secondary">Add</button>
+  </form>
+</section>
+{% endif %}
 <dl class="details">
+  {% if device.is_batch %}<dt>Tracked as</dt><dd>Batch{% if device.asset_tag %} (tag {{ device.asset_tag }}){% endif %}</dd>{% endif %}
   {% for field, label in [('category','Category'),('status','Status'),('manufacturer','Manufacturer'),('model','Model'),('model_number','Model Number'),('serial_number','Serial Number'),('manufacture_date','Manufacture Date'),('location','Location'),('assigned_to','Assigned To'),('purchase_date','Purchase Date'),('warranty_expires','Warranty Expires'),('replacement_date','Replace By')] %}
     <dt>{{ label }}</dt><dd>{{ device[field] or '—' }}</dd>
   {% endfor %}
@@ -70,6 +84,7 @@
       <td>{{ h.changed_at }}</td>
       <td>
         {% if h.field == 'created' %}Added to inventory{% if h.new_value %} at {{ h.new_value }}{% endif %}
+        {% elif h.field == 'is_batch' %}Changed to {{ 'a batch counted by quantity' if h.new_value == '1' else 'one device with an asset tag' }}
         {% elif h.field == 'ticket' %}{% if h.old_value %}{{ h.old_value }} {% endif %}{{ h.new_value }}
         {% else %}<strong>{{ FIELD_LABELS.get(h.field, h.field) }}</strong>: {{ h.old_value or '(blank)' }} → {{ h.new_value or '(blank)' }}{% endif %}
       </td>

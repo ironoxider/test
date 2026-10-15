@@ -25,10 +25,16 @@
   <a class="stat" href="{{ url_for('index', sort='warranty_expires') }}"><strong>{{ stats.out_of_warranty or 0 }}</strong><span>Out of warranty</span></a>
   <a class="stat {% if overdue or soon %}alert{% endif %}" href="{{ url_for('index', replace='due', sort='replacement_date') }}">
     <strong>{{ overdue + soon }}</strong><span>Due for replacement{% if overdue %} ({{ overdue }} overdue){% endif %}</span></a>
+  {% if low_stock %}
+  <a class="stat alert" href="{{ url_for('index', stock='low') }}"><strong>{{ low_stock }}</strong><span>Low stock</span></a>
+  {% endif %}
   <a class="stat {% if open_ticket_devices %}alert{% endif %}" href="{{ url_for('index', tickets='open') }}">
     <strong>{{ open_ticket_devices }}</strong><span>With open tickets</span></a>
 </section>
 
+{% if args.get('stock') == 'low' %}
+<p class="flash warn">Showing batches below their reorder level. <a href="{{ url_for('index') }}">Show all devices</a></p>
+{% endif %}
 {% if args.get('tickets') == 'open' %}
 <p class="flash warn">Showing devices with open help desk tickets. <a href="{{ url_for('index') }}">Show all devices</a></p>
 {% endif %}
@@ -56,6 +62,7 @@
   </select>
   {% if args.get('replace') %}<input type="hidden" name="replace" value="{{ args.get('replace') }}">{% endif %}
   {% if args.get('tickets') %}<input type="hidden" name="tickets" value="{{ args.get('tickets') }}">{% endif %}
+  {% if args.get('stock') %}<input type="hidden" name="stock" value="{{ args.get('stock') }}">{% endif %}
   <button type="submit">Filter</button>
   <a href="{{ url_for('index') }}">Clear</a>
   <a class="right" href="{{ url_for('export_csv', **args) }}">Export CSV</a>
@@ -68,6 +75,7 @@
     <tr>
       <th>{{ sort_link('asset_tag', 'Asset Tag') }}</th>
       <th>{{ sort_link('name', 'Name') }}</th>
+      <th>{{ sort_link('quantity', 'Qty') }}</th>
       <th>{{ sort_link('category', 'Category') }}</th>
       <th>{{ sort_link('model', 'Make / Model') }}</th>
       <th>{{ sort_link('model_number', 'Model #') }}</th>
@@ -83,8 +91,9 @@
   <tbody>
     {% for d in devices %}
     <tr>
-      <td><a href="{{ url_for('device_view', device_id=d.id) }}">{{ d.asset_tag }}</a></td>
+      <td><a href="{{ url_for('device_view', device_id=d.id) }}">{{ d.asset_tag or 'Batch' }}</a></td>
       <td class="wrap">{{ d.name }}</td>
+      <td class="{{ 'expired' if d.is_batch and d.min_quantity is not none and d.quantity < d.min_quantity }}">{{ d.quantity if d.is_batch else '' }}</td>
       <td>{{ d.category or '' }}</td>
       <td class="wrap">{{ [d.manufacturer, d.model]|select|join(' ') }}</td>
       <td>{{ d.model_number or '' }}</td>

@@ -122,6 +122,11 @@ def main():
     elif app.config["LISTENS_ON_NETWORK"]:
         print(" Phone access is off. Turn it on in Settings to use a phone.")
     print(f" Your data is saved in: {os.path.abspath(app.config['DATABASE'])}")
+    moved = app.config.get("DATA_MOVE")
+    if moved and moved[0] == "moved":
+        print(f" (Moved here from {moved[1]}, so newer versions find it too.)")
+    elif moved:
+        print(f" Note: an older inventory file is also in {moved[1]}; see Settings.")
     print()
     print(" Keep this window open while you use it.")
     print(" To stop, close this window (or press Ctrl+C).")
