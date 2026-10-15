@@ -80,8 +80,14 @@ def move_data_from_app_folder(data_dir):
     new_settings = os.path.join(data_dir, "settings.json")
     if os.path.exists(old_settings) and not os.path.exists(new_settings):
         shutil.copy2(old_settings, new_settings)
-        os.replace(old_settings, old_settings + ".moved")
-    os.replace(old_db, old_db + ".moved")
+    # Rename the old files so they aren't mistaken for the live ones. On Windows this fails
+    # if an older copy of the app still has them open; the copies are in place either way.
+    for path in (old_settings, old_db):
+        try:
+            if os.path.exists(path):
+                os.replace(path, path + ".moved")
+        except OSError:
+            pass
     return ("moved", old_db)
 
 

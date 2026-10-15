@@ -186,7 +186,10 @@ def test_backups_only_from_this_computer(client):
 def test_start_script_data_moves_to_documents(tmp_path, monkeypatch):
     app_dir, data_dir = tmp_path / "app", tmp_path / "Documents" / "Device Inventory"
     app_dir.mkdir()
-    sqlite3.connect(app_dir / "inventory.db").execute("CREATE TABLE x (y)").connection.commit()
+    db = sqlite3.connect(app_dir / "inventory.db")
+    db.execute("CREATE TABLE x (y)")
+    db.commit()
+    db.close()  # Windows can't rename a file that is still open
     (app_dir / "settings.json").write_text('{"helpdesk_email": "h@x.org"}')
     monkeypatch.setattr(app_settings, "RESOURCE_DIR", str(app_dir))
     assert app_settings.move_data_from_app_folder(str(data_dir)) == ("moved", str(app_dir / "inventory.db"))
@@ -214,3 +217,17 @@ def test_default_data_dir_is_documents_when_run_from_source(monkeypatch, tmp_pat
     (tmp_path / "Documents").mkdir()
     assert app_settings.default_data_dir() == str(tmp_path / "Documents" / "Device Inventory")
     assert re.search(r"Device Inventory$", app_settings.default_data_dir())
+
+
+def test_data_move_survives_a_locked_old_file(tmp_path, monkeypatch):
+    app_dir, data_dir = tmp_path / "app", tmp_path / "data"
+    app_dir.mkdir()
+    (app_dir / "inventory.db").write_bytes(b"inventory")
+    monkeypatch.setattr(app_settings, "RESOURCE_DIR", str(app_dir))
+
+    def locked(src, dst):
+        raise PermissionError("in use by another process")
+
+    monkeypatch.setattr(os, "replace", locked)
+    assert app_settings.move_data_from_app_folder(str(data_dir))[0] == "moved"
+    assert (data_dir / "inventory.db").read_bytes() == b"inventory"
