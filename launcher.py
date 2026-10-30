@@ -57,6 +57,7 @@ def selftest():
 
         client = create_app({"TESTING": True}).test_client()
         for path in ["/", "/devices/new", "/locations", "/lists", "/import", "/settings",
+                     "/helpdesk/", "/helpdesk/new",
                      "/static/vendor/zxing.min.js", "/static/vendor/heic2any.min.js",
                      "/static/vendor/qrcode.js",
                      "/static/photo-fill.js"]:

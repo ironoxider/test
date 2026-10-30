@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}New ticket · Device Inventory{% endblock %}
+{% macro option_select(name, options, current, empty_label, kind_label) -%}
+  <select name="{{ name }}" data-new-option="{{ kind_label }}">
+    <option value="">{{ empty_label }}</option>
+    {% for o in options %}<option {% if current == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+    {% if current and current not in options %}<option selected>{{ current }}</option>{% endif %}
+    <option value="{{ NEW_OPTION }}">+ Add new…</option>
+  </select>
+{%- endmacro %}
+{% block content %}
+<h1>New ticket{% if ticket.device_name %} <small>for {{ ticket.device_name }}</small>{% endif %}</h1>
+{% if errors %}<div class="flash error"><ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+<form method="post" class="device-form ticket-form-full">
+  <fieldset>
+    <legend>Problem</legend>
+    <label class="wide">Subject *<input name="subject" value="{{ ticket.subject or '' }}" required placeholder="e.g. Projector in W401 won't turn on" autofocus></label>
+    <label class="wide">Description<textarea name="description" rows="5" placeholder="What's wrong, what they've tried, error messages…">{{ ticket.description or '' }}</textarea></label>
+    <label>Requester<input name="requester_name" value="{{ ticket.requester_name or '' }}" placeholder="Who reported it"></label>
+    <label>Requester email<input type="email" name="requester_email" value="{{ ticket.requester_email or '' }}" placeholder="name@thehudsonschool.org"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Devices &amp; location</legend>
+    <label class="wide">Devices (asset tags)
+      <input name="devices" value="{{ ticket.devices or '' }}" class="mono" placeholder="e.g. CB-494, AC-120" autocomplete="off">
+    </label>
+    <label>Location
+      <select name="location_id">
+        <option value="">(None)</option>
+        {% for l in locations %}<option value="{{ l.id }}" {% if ticket.location_id == l.id %}selected{% endif %}>{{ l.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>…or new location<input name="new_location" placeholder="Type to create a new location"></label>
+    <p class="wide muted small-note">Separate several asset tags with commas. If you leave the location empty, it's taken
+      from the device. Batches without an asset tag can be linked from the ticket page later.</p>
+  </fieldset>
+  <fieldset>
+    <legend>Handling</legend>
+    <label>Priority
+      <select name="priority">{% for p in PRIORITIES %}<option {% if ticket.priority == p %}selected{% endif %}>{{ p }}</option>{% endfor %}</select>
+    </label>
+    <label>Status
+      <select name="status">{% for s in STATUSES_HD %}<option {% if ticket.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+    </label>
+    <label>Category{{ option_select('category', ticket_categories, ticket.category, '(None)', 'ticket category') }}</label>
+    <label>Assigned to{{ option_select('assigned_to', technicians, ticket.assigned_to, '(Unassigned)', "IT staff member's name") }}</label>
+  </fieldset>
+  <div class="actions">
+    <button type="submit">Create ticket</button>
+    <a href="{{ url_for('helpdesk.queue') }}">Cancel</a>
+  </div>
+</form>
+<script src="{{ url_for('static', filename='device-form.js') }}"></script>
+{% endblock %}

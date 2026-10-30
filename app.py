@@ -80,7 +80,18 @@ DEFAULT_LIFESPAN_YEARS = 3
 DEFAULT_REMINDER_DAYS = 90
 # Devices with these statuses are gone, so they don't need warranty or replacement warnings.
 INACTIVE_STATUSES = ("Retired", "Lost")
-OPTION_KINDS = {"category": "Categories", "status": "Statuses"}
+OPTION_KINDS = {"category": "Categories", "status": "Statuses"}  # drop-downs on the device form
+# Every list on the Lists page: kind -> (title, table and column that use it, "new" placeholder).
+LIST_KINDS = {
+    "category": ("Device categories", "devices", "category", "New category"),
+    "status": ("Device statuses", "devices", "status", "New status"),
+    "ticket_category": ("Ticket categories", "tickets", "category", "New ticket category"),
+    "technician": ("IT staff (tickets are assigned to them)", "tickets", "assigned_to", "Name"),
+}
+DEFAULT_TICKET_CATEGORIES = [
+    "Hardware", "Software", "Account / password", "Network / Wi-Fi", "Printer",
+    "Projector / display", "Chromebook", "Other",
+]
 NEW_OPTION = "__new__"  # value of the "+ Add new…" entry in the form drop-downs
 
 SORTABLE = {
@@ -122,11 +133,19 @@ def create_app(test_config=None):
         init_db()
 
     register_routes(app)
+    import helpdesk  # noqa: E402  (imported here: it uses this module's helpers)
+    app.register_blueprint(helpdesk.bp)
+
     @app.context_processor
     def option_lists():
         db = get_db()
         return {"STATUSES": list_options(db, "status"),
-                "CATEGORIES": list_options(db, "category")}
+                "CATEGORIES": list_options(db, "category"),
+                "OPEN_TICKETS": db.execute(
+                    "SELECT COUNT(*) FROM tickets WHERE status != 'Closed'").fetchone()[0]}
+
+    app.jinja_env.filters["localtime"] = local_time
+    app.jinja_env.filters["ago"] = time_ago
 
     app.jinja_env.globals.update(
         FIELD_LABELS=FIELD_LABELS,
@@ -169,14 +188,20 @@ def init_db():
             db.execute(f"ALTER TABLE devices ADD COLUMN {column} TEXT")
     if columns and (columns["asset_tag"]["notnull"] or "is_batch" not in columns):
         upgrade_devices_table(db, schema)
+    upgrade_options_table(db)
+    old_tickets = rename_v1_tickets(db)
     db.executescript(schema)
-    defaults = {"category": DEFAULT_CATEGORIES, "status": DEFAULT_STATUSES}
+    if old_tickets:
+        copy_v1_tickets(db)
+    defaults = {"category": DEFAULT_CATEGORIES, "status": DEFAULT_STATUSES,
+                "ticket_category": DEFAULT_TICKET_CATEGORIES, "technician": []}
     for kind, names in defaults.items():
         if db.execute("SELECT 1 FROM options WHERE kind = ?", (kind,)).fetchone():
             continue
-        # First run: start from the defaults plus anything already used on devices.
+        # First run: start from the defaults plus anything already in use.
+        _, table, column, _ = LIST_KINDS[kind]
         used = [r[0] for r in db.execute(
-            f"SELECT DISTINCT {kind} FROM devices WHERE {kind} IS NOT NULL ORDER BY {kind}")]
+            f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL ORDER BY {column}")]
         for name in names + used:
             ensure_option(db, kind, name)
     db.commit()
@@ -212,11 +237,103 @@ def upgrade_devices_table(db, schema):
         db.execute("PRAGMA foreign_keys = ON")
 
 
+def upgrade_options_table(db):
+    """Versions before 1.9 only allowed device categories and statuses in the options table."""
+    row = db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'options'").fetchone()
+    if not row or "CHECK (kind IN" not in row[0]:
+        return
+    db.commit()
+    db.executescript("""
+        BEGIN;
+        CREATE TABLE options_upgrade (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, name TEXT NOT NULL COLLATE NOCASE,
+            sort_order INTEGER NOT NULL DEFAULT 0, UNIQUE (kind, name));
+        INSERT INTO options_upgrade (id, kind, name, sort_order) SELECT id, kind, name, sort_order FROM options;
+        DROP TABLE options;
+        ALTER TABLE options_upgrade RENAME TO options;
+        COMMIT;
+    """)
+
+
+def rename_v1_tickets(db):
+    """Versions 1.7-1.8 had a simple per-device ticket log (Spiceworks numbers) in `tickets`.
+
+    Move it aside so the help desk's `tickets` table can be created; copy_v1_tickets() then
+    turns each entry into a help desk ticket linked to its device.
+    """
+    columns = {r["name"] for r in db.execute("PRAGMA table_info(tickets)")}
+    if "device_id" not in columns:
+        return False
+    db.commit()
+    db.executescript("""
+        DROP INDEX IF EXISTS idx_tickets_device;
+        DROP TABLE IF EXISTS tickets_v1;
+        ALTER TABLE tickets RENAME TO tickets_v1;
+    """)
+    return True
+
+
+def copy_v1_tickets(db):
+    for t in db.execute("SELECT t.*, d.location_id FROM tickets_v1 t "
+                        "LEFT JOIN devices d ON d.id = t.device_id ORDER BY t.id").fetchall():
+        number = t["ticket_number"]
+        subject = t["summary"] or (f"Spiceworks ticket {number}" if number else "Ticket")
+        closed = t["status"] == "Closed"
+        cur = db.execute(
+            "INSERT INTO tickets (subject, status, location_id, source, spiceworks_number, created_at,"
+            " updated_at, closed_at) VALUES (?, ?, ?, 'spiceworks', ?, ?, ?, ?)",
+            (subject, "Closed" if closed else "Open", t["location_id"], number,
+             f"{t['opened_on']} 00:00:00", t["created_at"],
+             f"{t['closed_on']} 00:00:00" if closed and t["closed_on"] else None))
+        db.execute("INSERT OR IGNORE INTO ticket_devices (ticket_id, device_id) VALUES (?, ?)",
+                   (cur.lastrowid, t["device_id"]))
+        db.execute("INSERT INTO ticket_messages (ticket_id, kind, body, created_at) VALUES (?, 'event', ?, ?)",
+                   (cur.lastrowid, "Copied from the device's ticket log"
+                    + (f" (Spiceworks ticket {number})" if number else "") + ".", t["created_at"]))
+    db.execute("DROP TABLE tickets_v1")
+    db.commit()
+
+
 def app_setting(key, default):
     from flask import current_app
 
     value = app_settings.load(current_app.config["SETTINGS_PATH"]).get(key)
     return default if value is None else value
+
+
+def parse_utc(value):
+    """A UTC timestamp as stored by SQLite ('YYYY-MM-DD HH:MM:SS'), as an aware datetime."""
+    from datetime import timezone
+    try:
+        return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def local_time(value):
+    """Show a stored UTC timestamp in this computer's time zone, e.g. 2026-10-30 2:05 PM."""
+    when = parse_utc(value)
+    if when is None:
+        return value or ""
+    local = when.astimezone()
+    return local.strftime("%Y-%m-%d ") + local.strftime("%I:%M %p").lstrip("0")
+
+
+def time_ago(value):
+    """Short age of a stored UTC timestamp: "5 min ago", "3 h ago", "2 days ago"."""
+    from datetime import timezone
+    when = parse_utc(value)
+    if when is None:
+        return ""
+    seconds = (datetime.now(timezone.utc) - when).total_seconds()
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)} min ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)} h ago"
+    days = int(seconds // 86400)
+    return f"{days} day{'s' if days != 1 else ''} ago"
 
 
 def add_years(start, years):
@@ -423,8 +540,8 @@ def query_devices(db, args):
             "d.serial_number", "d.assigned_to", "d.notes", "l.name",
         ]
         where.append("(" + " OR ".join(f"{c} LIKE ?" for c in searchable)
-                     + " OR EXISTS (SELECT 1 FROM tickets t WHERE t.device_id = d.id"
-                     " AND (t.ticket_number LIKE ? OR t.summary LIKE ?)))")
+                     + " OR EXISTS (SELECT 1 FROM ticket_devices td JOIN tickets t ON t.id = td.ticket_id"
+                     " WHERE td.device_id = d.id AND (t.subject LIKE ? OR t.spiceworks_number LIKE ?)))")
         params += [like] * (len(searchable) + 2)
     if clean(args.get("location")):
         if args["location"] == "none":
@@ -439,7 +556,8 @@ def query_devices(db, args):
     if args.get("stock") == "low":
         where.append("d.is_batch = 1 AND d.min_quantity IS NOT NULL AND d.quantity < d.min_quantity")
     if args.get("tickets") == "open":
-        where.append("EXISTS (SELECT 1 FROM tickets t WHERE t.device_id = d.id AND t.status = 'Open')")
+        where.append("EXISTS (SELECT 1 FROM ticket_devices td JOIN tickets t ON t.id = td.ticket_id"
+                     " WHERE td.device_id = d.id AND t.status != 'Closed')")
     for field in ("status", "category"):
         if clean(args.get(field)):
             where.append(f"d.{field} = ?")
@@ -449,9 +567,9 @@ def query_devices(db, args):
     direction = "DESC" if args.get("dir") == "desc" else "ASC"
     sql = (
         "SELECT d.*, l.name AS location,"
-        " (SELECT COUNT(*) FROM tickets t WHERE t.device_id = d.id) AS ticket_count,"
-        " (SELECT COUNT(*) FROM tickets t WHERE t.device_id = d.id AND t.status = 'Open')"
-        " AS open_tickets"
+        " (SELECT COUNT(*) FROM ticket_devices td WHERE td.device_id = d.id) AS ticket_count,"
+        " (SELECT COUNT(*) FROM ticket_devices td JOIN tickets t ON t.id = td.ticket_id"
+        "  WHERE td.device_id = d.id AND t.status != 'Closed') AS open_tickets"
         " FROM devices d LEFT JOIN locations l ON l.id = d.location_id"
         + (" WHERE " + " AND ".join(where) if where else "")
         + f" ORDER BY {sort} IS NULL, {sort} COLLATE NOCASE {direction}, d.id"
@@ -550,11 +668,6 @@ def backup_filename():
 # ---------------------------------------------------------------- help desk tickets
 
 
-def normalize_ticket_number(value):
-    value = clean(value)
-    return value.lstrip("#").strip() or None if value else None
-
-
 def ticket_link(number):
     """Link to a ticket in the help desk, from the address pattern saved in Settings."""
     pattern = app_setting("ticket_url", None)
@@ -587,16 +700,6 @@ def report_problem_mailto(device):
     return f"mailto:{urllib.parse.quote(address, safe='@')}?{query}"
 
 
-def log_ticket_history(db, device_id, old, new):
-    db.execute("INSERT INTO device_history (device_id, field, old_value, new_value) "
-               "VALUES (?, 'ticket', ?, ?)", (device_id, old, new))
-
-
-def ticket_label(ticket):
-    number = f"Ticket {ticket['ticket_number']}" if ticket["ticket_number"] else "Ticket"
-    return number + (f" ({ticket['summary']})" if ticket["summary"] else "")
-
-
 # ------------------------------------------------------------------ routes
 
 
@@ -623,7 +726,8 @@ def register_routes(app):
             "SELECT COUNT(*) FROM devices WHERE is_batch = 1 AND min_quantity IS NOT NULL "
             "AND quantity < min_quantity").fetchone()[0]
         open_ticket_devices = db.execute(
-            "SELECT COUNT(DISTINCT device_id) FROM tickets WHERE status = 'Open'").fetchone()[0]
+            "SELECT COUNT(DISTINCT td.device_id) FROM ticket_devices td JOIN tickets t ON t.id = td.ticket_id"
+            " WHERE t.status != 'Closed'").fetchone()[0]
         counts = dict(db.execute("SELECT status, COUNT(*) FROM devices GROUP BY status").fetchall())
         status_counts = [(s, counts[s]) for s in list_options(db, "status") if counts.get(s)]
         return render_template(
@@ -669,53 +773,12 @@ def register_routes(app):
             "SELECT * FROM device_history WHERE device_id = ? ORDER BY id DESC", (device_id,)
         ).fetchall()
         tickets = db.execute(
-            "SELECT * FROM tickets WHERE device_id = ? "
-            "ORDER BY status = 'Closed', opened_on DESC, id DESC", (device_id,)).fetchall()
+            "SELECT t.* FROM tickets t JOIN ticket_devices td ON td.ticket_id = t.id "
+            "WHERE td.device_id = ? ORDER BY t.status = 'Closed', t.created_at DESC, t.id DESC",
+            (device_id,)).fetchall()
         return render_template("device_view.html", device=device, history=history,
                                tickets=tickets, ticket_link=ticket_link,
                                report_mailto=report_problem_mailto(device))
-
-    @app.route("/devices/<int:device_id>/tickets", methods=["POST"])
-    def ticket_add(device_id):
-        db = get_db()
-        if db.execute("SELECT 1 FROM devices WHERE id = ?", (device_id,)).fetchone() is None:
-            abort(404)
-        number = normalize_ticket_number(request.form.get("ticket_number"))
-        summary = clean(request.form.get("summary"))
-        opened = clean(request.form.get("opened_on")) or date.today().isoformat()
-        try:
-            date.fromisoformat(opened)
-        except ValueError:
-            flash("The ticket date isn't a valid date.", "error")
-            return redirect(url_for("device_view", device_id=device_id) + "#tickets")
-        if not number and not summary:
-            flash("Enter a ticket number or a short summary.", "error")
-            return redirect(url_for("device_view", device_id=device_id) + "#tickets")
-        cur = db.execute("INSERT INTO tickets (device_id, ticket_number, opened_on, summary) "
-                         "VALUES (?, ?, ?, ?)", (device_id, number, opened, summary))
-        ticket = db.execute("SELECT * FROM tickets WHERE id = ?", (cur.lastrowid,)).fetchone()
-        log_ticket_history(db, device_id, None, ticket_label(ticket) + " opened")
-        db.commit()
-        flash("Ticket logged.", "success")
-        return redirect(url_for("device_view", device_id=device_id) + "#tickets")
-
-    def get_ticket(ticket_id):
-        ticket = get_db().execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
-        if ticket is None:
-            abort(404)
-        return ticket
-
-    @app.route("/tickets/<int:ticket_id>/status", methods=["POST"])
-    def ticket_status(ticket_id):
-        db, ticket = get_db(), get_ticket(ticket_id)
-        closing = ticket["status"] == "Open"
-        db.execute("UPDATE tickets SET status = ?, closed_on = ? WHERE id = ?",
-                   ("Closed" if closing else "Open",
-                    date.today().isoformat() if closing else None, ticket_id))
-        log_ticket_history(db, ticket["device_id"], ticket_label(ticket),
-                           "closed" if closing else "reopened")
-        db.commit()
-        return redirect(url_for("device_view", device_id=ticket["device_id"]) + "#tickets")
 
     @app.route("/devices/<int:device_id>/quantity", methods=["POST"])
     def device_quantity(device_id):
@@ -739,15 +802,6 @@ def register_routes(app):
         db.commit()
         flash(f"{'Added' if change > 0 else 'Took out'} {amount}. Now {new} on hand.", "success")
         return redirect(url_for("device_view", device_id=device_id))
-
-    @app.route("/tickets/<int:ticket_id>/delete", methods=["POST"])
-    def ticket_delete(ticket_id):
-        db, ticket = get_db(), get_ticket(ticket_id)
-        db.execute("DELETE FROM tickets WHERE id = ?", (ticket_id,))
-        log_ticket_history(db, ticket["device_id"], ticket_label(ticket), "removed")
-        db.commit()
-        flash("Ticket removed.", "success")
-        return redirect(url_for("device_view", device_id=ticket["device_id"]) + "#tickets")
 
     @app.route("/devices/<int:device_id>/edit", methods=["GET", "POST"])
     def device_edit(device_id):
@@ -803,7 +857,9 @@ def register_routes(app):
                     flash(f"A location named '{name}' already exists.", "error")
             return redirect(url_for("locations"))
         rows = db.execute(
-            "SELECT l.*, COUNT(d.id) AS device_count FROM locations l "
+            "SELECT l.*, COUNT(d.id) AS device_count,"
+            " (SELECT COUNT(*) FROM tickets t WHERE t.location_id = l.id AND t.status != 'Closed')"
+            " AS open_tickets FROM locations l "
             "LEFT JOIN devices d ON d.location_id = l.id GROUP BY l.id ORDER BY l.name"
         ).fetchall()
         return render_template("locations.html", locations=rows)
@@ -971,11 +1027,12 @@ def register_routes(app):
     def lists():
         db = get_db()
         sections = []
-        for kind, title in OPTION_KINDS.items():
+        for kind, (title, table, column, placeholder) in LIST_KINDS.items():
             rows = db.execute(
-                f"SELECT o.id, o.name, (SELECT COUNT(*) FROM devices d WHERE d.{kind} = o.name) AS used "
+                f"SELECT o.id, o.name, (SELECT COUNT(*) FROM {table} x WHERE x.{column} = o.name) AS used "
                 "FROM options o WHERE o.kind = ? ORDER BY o.sort_order, o.id", (kind,)).fetchall()
-            sections.append({"kind": kind, "title": title, "rows": rows})
+            sections.append({"kind": kind, "title": title, "rows": rows, "table": table,
+                             "column": column, "placeholder": placeholder})
         return render_template("lists.html", sections=sections)
 
     def get_option(option_id):
@@ -993,7 +1050,7 @@ def register_routes(app):
 
     @app.route("/lists/<kind>/add", methods=["POST"])
     def option_add(kind):
-        if kind not in OPTION_KINDS:
+        if kind not in LIST_KINDS:
             abort(404)
         db = get_db()
         name = clean(request.form.get("name"))
@@ -1021,15 +1078,18 @@ def register_routes(app):
         elif clash:
             flash(f"'{new}' is already in the list.", "error")
         elif new != old:
+            _, table, column, _ = LIST_KINDS[kind]
             db.execute("UPDATE options SET name = ? WHERE id = ?", (new, option_id))
-            ids = [r["id"] for r in db.execute(f"SELECT id FROM devices WHERE {kind} = ?", (old,))]
-            db.execute(f"UPDATE devices SET {kind} = ?, updated_at = datetime('now') "
-                       f"WHERE {kind} = ?", (new, old))
-            db.executemany(
-                "INSERT INTO device_history (device_id, field, old_value, new_value) VALUES (?, ?, ?, ?)",
-                [(i, kind, old, new) for i in ids])
+            ids = [r["id"] for r in db.execute(f"SELECT id FROM {table} WHERE {column} = ?", (old,))]
+            db.execute(f"UPDATE {table} SET {column} = ?, updated_at = datetime('now') "
+                       f"WHERE {column} = ?", (new, old))
+            if table == "devices":
+                db.executemany(
+                    "INSERT INTO device_history (device_id, field, old_value, new_value) VALUES (?, ?, ?, ?)",
+                    [(i, kind, old, new) for i in ids])
             db.commit()
-            flash(f"Renamed '{old}' to '{new}'" + (f" on {len(ids)} device(s)." if ids else "."),
+            what = "device(s)" if table == "devices" else "ticket(s)"
+            flash(f"Renamed '{old}' to '{new}'" + (f" on {len(ids)} {what}." if ids else "."),
                   "success")
         return redirect(url_for("lists") + f"#{kind}")
 
@@ -1051,9 +1111,11 @@ def register_routes(app):
         db = get_db()
         opt = get_option(option_id)
         kind, name = opt["kind"], opt["name"]
-        used = db.execute(f"SELECT COUNT(*) FROM devices WHERE {kind} = ?", (name,)).fetchone()[0]
+        _, table, column, _ = LIST_KINDS[kind]
+        used = db.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} = ?", (name,)).fetchone()[0]
         if used:
-            flash(f"Can't remove '{name}': {used} device(s) use it. Change them first, "
+            what = "device(s)" if table == "devices" else "ticket(s)"
+            flash(f"Can't remove '{name}': {used} {what} use it. Change them first, "
                   "or rename it instead.", "error")
         elif kind == "status" and len(list_options(db, "status")) == 1:
             flash("There must be at least one status.", "error")

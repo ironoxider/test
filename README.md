@@ -32,11 +32,21 @@ is no database server to set up.
 - **Backups**: in **Settings → Your data & backups**, **Back up now** saves a dated .zip (inventory, settings without
   the API key, and restore steps) to a folder you choose, such as a Google Drive folder. **Download a backup**
   saves the same file through the browser.
-- **Help desk tickets** (e.g. Spiceworks): log ticket numbers against a device, with the date, a short summary
-  and open/closed status. The Devices page counts devices with open tickets, and searching for a ticket number
-  finds its device. In **Settings → Help desk**, enter your help desk's ticket email address to get a
-  **Report a problem** button on each device that opens an email with the device's details filled in. Optionally,
-  enter the ticket web address (with `{number}` where the ticket number goes) so ticket numbers link to the ticket.
+- **Help Desk** (replacing Spiceworks, stage 1): a ticket queue for IT staff, under **Help Desk** in the menu.
+  - Each ticket has a requester, subject and description, status (New, Open, Waiting, Closed), priority,
+    category, the IT staff member it's assigned to, a location, and any number of linked devices.
+  - The ticket page shows the whole history: the request, internal notes, and every change ("Status: Open →
+    Closed", "Linked CB-494"). Asset tags and rooms mentioned in a ticket are offered as one-click links.
+  - Start a ticket from **+ New ticket**, or from a device's page (the device and its room are filled in).
+    Device pages list their tickets, the Locations page counts open tickets per room, and the queue filters by
+    status, assignee, priority, category and location and searches ticket numbers, text, people and asset tags.
+  - Ticket categories and IT staff names are managed on the **Lists** page.
+  - Entries from the old per-device ticket log (version 1.7–1.8) become help desk tickets, keeping their
+    Spiceworks number (linked to Spiceworks if its address is set in Settings).
+  - **Report a problem** on a device page opens an email to the help desk address set in Settings, with the
+    device's details filled in.
+  - Still to come: reading and answering helpdesk@ email through the Gmail API (stage 2), and running on an
+    always-on campus server with Google sign-in (stage 3).
 - **CSV export and import**: export the current filtered view. When you import, a row whose asset
   tag already exists updates that device, and any other row adds a new one.
 

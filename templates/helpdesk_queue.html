@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Help Desk · Device Inventory{% endblock %}
+{% macro view_link(key, label, count=None) -%}
+  {%- set params = dict(args) -%}{%- set _ = params.update(view=key) -%}
+  <a class="tab {{ 'active' if view == key }}" href="{{ url_for('helpdesk.queue', **params) }}">{{ label }}{% if count %} <span class="nav-count">{{ count }}</span>{% endif %}</a>
+{%- endmacro %}
+{% block content %}
+<div class="heading">
+  <h1>Help Desk</h1>
+  <div class="actions"><a class="button" href="{{ url_for('helpdesk.new') }}">+ New ticket</a></div>
+</div>
+
+<section class="stats">
+  <a class="stat" href="{{ url_for('helpdesk.queue') }}"><strong>{{ counts.open or 0 }}</strong><span>Open</span></a>
+  <a class="stat {{ 'alert' if counts.new }}" href="{{ url_for('helpdesk.queue', view='new') }}"><strong>{{ counts.new or 0 }}</strong><span>New (not looked at yet)</span></a>
+  <a class="stat {{ 'alert' if counts.unassigned }}" href="{{ url_for('helpdesk.queue', assigned_to='unassigned') }}"><strong>{{ counts.unassigned or 0 }}</strong><span>Unassigned</span></a>
+  <a class="stat" href="{{ url_for('helpdesk.queue', view='waiting') }}"><strong>{{ counts.waiting or 0 }}</strong><span>Waiting</span></a>
+  <a class="stat {{ 'alert' if counts.urgent }}" href="{{ url_for('helpdesk.queue', sort='priority') }}"><strong>{{ counts.urgent or 0 }}</strong><span>High or urgent</span></a>
+</section>
+
+<nav class="tabs">
+  {{ view_link('open', 'Open') }}{{ view_link('new', 'New') }}{{ view_link('waiting', 'Waiting') }}{{ view_link('closed', 'Closed') }}{{ view_link('all', 'All') }}
+</nav>
+
+<form class="filters" method="get">
+  <input type="hidden" name="view" value="{{ view }}">
+  <input type="search" name="q" value="{{ args.get('q', '') }}" placeholder="Search #number, subject, person, asset tag, room…">
+  <select name="assigned_to" aria-label="Assigned to">
+    <option value="">Anyone</option>
+    <option value="unassigned" {% if args.get('assigned_to') == 'unassigned' %}selected{% endif %}>Unassigned</option>
+    {% for t in technicians %}<option {% if args.get('assigned_to') == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+  </select>
+  <select name="priority" aria-label="Priority">
+    <option value="">Any priority</option>
+    {% for p in PRIORITIES %}<option {% if args.get('priority') == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+  </select>
+  <select name="category" aria-label="Category">
+    <option value="">Any category</option>
+    {% for c in ticket_categories %}<option {% if args.get('category') == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="location" aria-label="Location">
+    <option value="">Any location</option>
+    {% for l in locations %}<option value="{{ l.id }}" {% if args.get('location') == l.id|string %}selected{% endif %}>{{ l.name }}</option>{% endfor %}
+  </select>
+  <select name="sort" aria-label="Sort">
+    <option value="updated" {% if sort == 'updated' %}selected{% endif %}>Recently updated</option>
+    <option value="priority" {% if sort == 'priority' %}selected{% endif %}>Priority</option>
+    <option value="oldest" {% if sort == 'oldest' %}selected{% endif %}>Oldest first</option>
+    <option value="newest" {% if sort == 'newest' %}selected{% endif %}>Newest first</option>
+  </select>
+  {% if args.get('device') %}<input type="hidden" name="device" value="{{ args.get('device') }}">{% endif %}
+  <button type="submit">Filter</button>
+  <a href="{{ url_for('helpdesk.queue', view=view) }}">Clear</a>
+</form>
+
+{% if tickets %}
+<div class="table-wrap">
+<table class="ticket-queue">
+  <thead><tr><th>#</th><th>Subject</th><th>Requester</th><th>Location</th><th>Devices</th><th>Priority</th><th>Status</th><th>Assigned</th><th>Updated</th></tr></thead>
+  <tbody>
+  {% for t in tickets %}
+    <tr class="{{ 'closed' if t.status == 'Closed' }}">
+      <td class="mono"><a href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">#{{ t.id }}</a></td>
+      <td class="wrap subject"><a href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">{{ t.subject }}</a>
+        {% if t.category %}<span class="muted small-note"> · {{ t.category }}</span>{% endif %}</td>
+      <td class="wrap">{{ t.requester_name or t.requester_email or '' }}</td>
+      <td class="wrap">{{ t.location or '' }}</td>
+      <td class="wrap mono small-note">{{ t.devices or '' }}</td>
+      <td><span class="badge priority-{{ t.priority|lower }}">{{ t.priority }}</span></td>
+      <td><span class="badge ticket-{{ t.status|lower }}">{{ t.status }}</span></td>
+      <td class="wrap">{{ t.assigned_to or '' }}</td>
+      <td title="{{ t.updated_at|localtime }}">{{ t.updated_at|ago }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted">{{ tickets|length }} ticket(s) shown.</p>
+{% else %}
+<p class="empty">No tickets here. <a href="{{ url_for('helpdesk.new') }}">Create one</a>{% if view != 'all' %} or <a href="{{ url_for('helpdesk.queue', view='all') }}">show all tickets</a>{% endif %}.</p>
+{% endif %}
+{% endblock %}

@@ -9,7 +9,8 @@
 
   // ---------------------------------------------------- "+ Add new…" options
 
-  form.querySelectorAll("select[data-new-option]").forEach(function (select) {
+  // Every form on the page (a ticket page has several).
+  document.querySelectorAll("select[data-new-option]").forEach(function (select) {
     let previous = select.value;
     select.addEventListener("focus", function () { previous = select.value; });
     select.addEventListener("change", function () {
@@ -17,8 +18,8 @@
         previous = select.value;
         return;
       }
-      const kind = select.dataset.newOption === "status" ? "status" : "category";
-      const name = (window.prompt("New " + kind + " name:") || "").trim();
+      const kind = select.dataset.newOption || "entry";  // e.g. "category", "IT staff name"
+      const name = (window.prompt("New " + kind + ":") || "").trim();
       if (!name) {
         select.value = previous;
         return;

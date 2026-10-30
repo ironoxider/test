@@ -12,7 +12,7 @@
 {% if locations %}
 <div class="table-wrap">
 <table>
-  <thead><tr><th>Name</th><th>Building</th><th>Room</th><th>Notes</th><th>Devices</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>Building</th><th>Room</th><th>Notes</th><th>Devices</th><th>Open tickets</th><th></th></tr></thead>
   <tbody>
   {% for l in locations %}
     <tr>
@@ -21,6 +21,7 @@
       <td>{{ l.room or '' }}</td>
       <td>{{ l.notes or '' }}</td>
       <td><a href="{{ url_for('index', location=l.id) }}">{{ l.device_count }}</a></td>
+      <td>{% if l.open_tickets %}<a href="{{ url_for('helpdesk.queue', location=l.id) }}">{{ l.open_tickets }}</a>{% endif %}</td>
       <td class="row-actions">
         <a href="{{ url_for('location_edit', location_id=l.id) }}">Edit</a>
         {% if not l.device_count %}

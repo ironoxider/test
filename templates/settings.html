@@ -96,18 +96,18 @@
       warns you about devices that are past their date or due within the reminder window.</p>
   </fieldset>
   <fieldset id="helpdesk">
-    <legend>Help desk (Spiceworks)</legend>
-    <label>Ticket email address
-      <input type="email" name="helpdesk_email" value="{{ helpdesk_email }}" placeholder="e.g. help@yourschool.on.spiceworks.com" spellcheck="false">
+    <legend>Help desk</legend>
+    <label>Help desk email address
+      <input type="email" name="helpdesk_email" value="{{ helpdesk_email }}" placeholder="helpdesk@thehudsonschool.org" spellcheck="false">
     </label>
-    <label>Ticket web address
+    <label>Spiceworks ticket address (old tickets)
       <input name="ticket_url" value="{{ ticket_url }}" placeholder="https://…/tickets/{number}" spellcheck="false">
     </label>
     <p class="wide muted">With an email address, each device page gets a <strong>Report a problem</strong> button that
-      opens a new email to the help desk with the device's asset tag, model, serial number, location and assigned
-      person already filled in. In Spiceworks the address is the one emailed tickets go to (see its help desk email
-      settings). For the web address, open any ticket in Spiceworks, copy the address from the browser and replace
-      the ticket number with <code>{number}</code>; ticket numbers on device pages then link straight to the ticket.</p>
+      opens an email to the help desk with the device's asset tag, model, serial number, location and assigned person
+      filled in. Tickets copied from the old device ticket log keep their Spiceworks number; with the Spiceworks
+      address (a ticket's web address with the number replaced by <code>{number}</code>) those numbers link to the
+      old ticket. IT staff names for assigning tickets are on the <a href="{{ url_for('lists') }}#technician">Lists</a> page.</p>
   </fieldset>
   <fieldset id="backups">
     <legend>Your data &amp; backups</legend>

@@ -43,25 +43,53 @@ CREATE TABLE IF NOT EXISTS device_history (
 
 CREATE INDEX IF NOT EXISTS idx_history_device ON device_history(device_id);
 
--- Choices for the category and status drop-downs (managed on the Lists page).
+-- Choices for the drop-downs managed on the Lists page.
 CREATE TABLE IF NOT EXISTS options (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind       TEXT NOT NULL CHECK (kind IN ('category', 'status')),
+    kind       TEXT NOT NULL,  -- category, status, ticket_category, technician
     name       TEXT NOT NULL COLLATE NOCASE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     UNIQUE (kind, name)
 );
 
--- Help desk tickets (e.g. Spiceworks) logged against a device.
+-- Help desk: tickets, the devices each one is about, and its conversation.
 CREATE TABLE IF NOT EXISTS tickets (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id     INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    ticket_number TEXT,
-    opened_on     TEXT NOT NULL,
-    summary       TEXT,
-    status        TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'Closed')),
-    closed_on     TEXT,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject           TEXT NOT NULL,
+    requester_name    TEXT,
+    requester_email   TEXT,
+    status            TEXT NOT NULL DEFAULT 'Open',    -- New, Open, Waiting, Closed
+    priority          TEXT NOT NULL DEFAULT 'Normal',  -- Low, Normal, High, Urgent
+    category          TEXT,
+    assigned_to       TEXT,
+    location_id       INTEGER REFERENCES locations(id) ON DELETE SET NULL,
+    source            TEXT NOT NULL DEFAULT 'manual',  -- manual, email, spiceworks
+    spiceworks_number TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    closed_at         TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_tickets_device ON tickets(device_id);
+CREATE INDEX IF NOT EXISTS idx_hd_tickets_status ON tickets(status);
+CREATE INDEX IF NOT EXISTS idx_hd_tickets_location ON tickets(location_id);
+
+CREATE TABLE IF NOT EXISTS ticket_devices (
+    ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    PRIMARY KEY (ticket_id, device_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticket_devices_device ON ticket_devices(device_id);
+
+-- kind: description (the original request), note (internal), reply (to the requester),
+-- incoming (a reply from the requester), event (a change such as "Status: Open -> Closed").
+CREATE TABLE IF NOT EXISTS ticket_messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,
+    author     TEXT,
+    body       TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket ON ticket_messages(ticket_id);

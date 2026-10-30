@@ -11,6 +11,7 @@
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}">Device Inventory</a>
     <nav>
+      <a href="{{ url_for('helpdesk.queue') }}">Help Desk{% if OPEN_TICKETS %} <span class="nav-count">{{ OPEN_TICKETS }}</span>{% endif %}</a>
       <a href="{{ url_for('index') }}">Devices</a>
       <a href="{{ url_for('locations') }}">Locations</a>
       <a href="{{ url_for('lists') }}">Lists</a>

@@ -10,7 +10,7 @@ import time
 
 # Shown at the bottom of every page; bump it with each release so people can tell
 # which version they're running (and so the launcher can spot an older copy).
-APP_VERSION = "1.8"
+APP_VERSION = "1.9"
 
 FROZEN = getattr(sys, "frozen", False)  # True when running as a packaged (PyInstaller) app
 

@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}#{{ ticket.id }} {{ ticket.subject }} · Help Desk{% endblock %}
+{% macro option_select(name, options, current, empty_label, kind_label) -%}
+  <select name="{{ name }}" data-new-option="{{ kind_label }}">
+    <option value="">{{ empty_label }}</option>
+    {% for o in options %}<option {% if current == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+    {% if current and current not in options %}<option selected>{{ current }}</option>{% endif %}
+    <option value="{{ NEW_OPTION }}">+ Add new…</option>
+  </select>
+{%- endmacro %}
+{% block content %}
+<p class="muted small-note"><a href="{{ url_for('helpdesk.queue') }}">← Help Desk</a></p>
+<div class="heading">
+  <h1><span class="muted">#{{ ticket.id }}</span> {{ ticket.subject }}</h1>
+  <div class="actions">
+    <span class="badge priority-{{ ticket.priority|lower }}">{{ ticket.priority }}</span>
+    <span class="badge ticket-{{ ticket.status|lower }}">{{ ticket.status }}</span>
+    <form method="post" action="{{ url_for('helpdesk.update', ticket_id=ticket.id) }}">
+      {% if ticket.status == 'Closed' %}
+      <button type="submit" name="status" value="Open" class="secondary">Reopen</button>
+      {% else %}
+      <button type="submit" name="status" value="Closed">Close ticket</button>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="ticket-layout">
+  <section class="ticket-thread">
+    <p class="muted">
+      Opened {{ ticket.created_at|localtime }}{% if ticket.requester_name or ticket.requester_email %} by
+      <strong>{{ ticket.requester_name or ticket.requester_email }}</strong>{% if ticket.requester_name and ticket.requester_email %}
+      (<a href="mailto:{{ ticket.requester_email }}">{{ ticket.requester_email }}</a>){% endif %}{% endif %}.
+      {% if ticket.closed_at %}Closed {{ ticket.closed_at|localtime }}.{% endif %}
+      {% if ticket.spiceworks_number %}Spiceworks ticket
+        {% if spiceworks_link %}<a href="{{ spiceworks_link }}" target="_blank" rel="noopener">{{ ticket.spiceworks_number }}</a>{% else %}{{ ticket.spiceworks_number }}{% endif %}.{% endif %}
+    </p>
+    {% for m in messages %}
+      {% if m.kind == 'event' %}
+      <div class="event"><span>{{ m.body }}</span> <span class="muted">· {{ m.created_at|localtime }}</span></div>
+      {% else %}
+      <article class="message message-{{ m.kind }}">
+        <header>
+          <strong>{{ m.author or ('Requester' if m.kind in ('description', 'incoming') else 'IT') }}</strong>
+          <span class="muted">{{ {'description': 'reported', 'note': 'internal note', 'reply': 'replied', 'incoming': 'replied'}[m.kind] }}
+            · {{ m.created_at|localtime }}</span>
+        </header>
+        <div class="message-body">{{ m.body }}</div>
+      </article>
+      {% endif %}
+    {% endfor %}
+
+    <form method="post" action="{{ url_for('helpdesk.note', ticket_id=ticket.id) }}" id="add-note" class="note-form device-form">
+      <label class="wide">Add an internal note
+        <textarea name="body" rows="4" placeholder="What you found or did. Only IT sees notes."></textarea>
+      </label>
+      <label>From{{ option_select('author', technicians, ticket.assigned_to, '(IT)', "IT staff member's name") }}</label>
+      <label class="checkbox"><input type="checkbox" name="close" value="1"> Close the ticket too</label>
+      <div class="actions wide"><button type="submit">Add note</button></div>
+      <p class="wide muted small-note">Replying to the requester by email comes with the helpdesk@ email connection.</p>
+    </form>
+  </section>
+
+  <aside class="ticket-side">
+    <form method="post" action="{{ url_for('helpdesk.update', ticket_id=ticket.id) }}" class="side-box device-form">
+      <h2>Details</h2>
+      <label>Status
+        <select name="status">{% for s in STATUSES_HD %}<option {% if ticket.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+      </label>
+      <label>Priority
+        <select name="priority">{% for p in PRIORITIES %}<option {% if ticket.priority == p %}selected{% endif %}>{{ p }}</option>{% endfor %}</select>
+      </label>
+      <label>Assigned to{{ option_select('assigned_to', technicians, ticket.assigned_to, '(Unassigned)', "IT staff member's name") }}</label>
+      <label>Category{{ option_select('category', ticket_categories, ticket.category, '(None)', 'ticket category') }}</label>
+      <label>Location
+        <select name="location_id">
+          <option value="">(None)</option>
+          {% for l in locations %}<option value="{{ l.id }}" {% if ticket.location_id == l.id %}selected{% endif %}>{{ l.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Requester<input name="requester_name" value="{{ ticket.requester_name or '' }}"></label>
+      <label>Requester email<input type="email" name="requester_email" value="{{ ticket.requester_email or '' }}"></label>
+      <label>Subject<input name="subject" value="{{ ticket.subject }}" required></label>
+      <div class="actions"><button type="submit">Save</button></div>
+    </form>
+
+    <section class="side-box" id="devices">
+      <h2>Devices</h2>
+      {% if devices %}
+      <ul class="device-links">
+        {% for d in devices %}
+        <li>
+          <a href="{{ url_for('device_view', device_id=d.id) }}"><strong>{{ device_label(d) }}</strong></a>
+          <span class="muted">{{ d.name if d.asset_tag else '' }}{% if d.model %} · {{ d.model }}{% endif %}{% if d.location %} · {{ d.location }}{% endif %}</span>
+          <form method="post" action="{{ url_for('helpdesk.remove_device', ticket_id=ticket.id, device_id=d.id) }}">
+            <button type="submit" class="link danger small-note" aria-label="Unlink {{ device_label(d) }}">Unlink</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="muted">No devices linked.</p>{% endif %}
+      {% if device_hits or location_hits %}
+      <div class="suggest">
+        <p class="small-note"><strong>Mentioned in this ticket:</strong></p>
+        {% for d in device_hits %}
+        <form method="post" action="{{ url_for('helpdesk.add_devices', ticket_id=ticket.id) }}">
+          <input type="hidden" name="tags" value="{{ d.asset_tag }}">
+          <button type="submit" class="secondary small">Link {{ d.asset_tag }}</button> <span class="muted small-note">{{ d.name }}</span>
+        </form>
+        {% endfor %}
+        {% for l in location_hits %}
+        <form method="post" action="{{ url_for('helpdesk.update', ticket_id=ticket.id) }}">
+          <input type="hidden" name="location_id" value="{{ l.id }}">
+          <button type="submit" class="secondary small">Set location {{ l.name }}</button>
+        </form>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <form method="post" action="{{ url_for('helpdesk.add_devices', ticket_id=ticket.id) }}" class="inline-form">
+        <input name="tags" class="mono" placeholder="Asset tag(s)" aria-label="Asset tags to link" size="14">
+        <button type="submit" class="secondary">Link</button>
+      </form>
+    </section>
+
+    <form method="post" action="{{ url_for('helpdesk.delete', ticket_id=ticket.id) }}" class="side-delete"
+          onsubmit="return confirm('Delete ticket #{{ ticket.id }} and its notes? This cannot be undone. (Closing it keeps the record.)');">
+      <button type="submit" class="link danger small-note">Delete ticket</button>
+    </form>
+  </aside>
+</div>
+<script src="{{ url_for('static', filename='device-form.js') }}"></script>
+{% endblock %}
