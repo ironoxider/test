@@ -1,14 +1,18 @@
 """Help desk: tickets from staff, each linked to devices and/or a location.
 
-Stage 1 of replacing Spiceworks: tickets are created here (by IT staff, or from a device's
-page) and worked on here. Reading and answering helpdesk@ email comes in a later stage.
+Tickets are created here (by IT staff, or from a device's page) or from email to the help
+desk mailbox (see mailsync.py), and answered here by internal notes or email replies.
 """
 
 import re
+import secrets
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 
 import app as core
+import app_settings
+import gmail_api
+import mailsync
 
 bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
 
@@ -128,6 +132,16 @@ def location_from_form(db, form):
     return int(loc) if loc and loc.isdigit() else None
 
 
+def mail_state():
+    """What the pages show about the email connection."""
+    cfg = mailsync.config()
+    return cfg | {"connected": mailsync.connected() and bool(cfg["mailbox"])}
+
+
+def gmail_link(mailbox, gmail_id):
+    return f"https://mail.google.com/mail/u/{mailbox}/#all/{gmail_id}" if mailbox and gmail_id else None
+
+
 def form_lists(db):
     return {
         "technicians": core.list_options(db, "technician"),
@@ -189,7 +203,7 @@ def queue():
         " SUM(status != 'Closed' AND assigned_to IS NULL) AS unassigned,"
         " SUM(status != 'Closed' AND priority IN ('High', 'Urgent')) AS urgent FROM tickets").fetchone()
     return render_template("helpdesk_queue.html", tickets=tickets, counts=counts, view=view,
-                           views=VIEWS, sort=sort, args=args, **form_lists(db))
+                           views=VIEWS, sort=sort, args=args, mail=mail_state(), **form_lists(db))
 
 
 # ---------------------------------------------------------------- create
@@ -258,7 +272,7 @@ def new():
 
 
 @bp.route("/<int:ticket_id>")
-def view(ticket_id):
+def view(ticket_id, reply_draft=None):
     db = core.get_db()
     ticket = get_ticket(db, ticket_id)
     devices = linked_devices(db, ticket_id)
@@ -268,7 +282,8 @@ def view(ticket_id):
     return render_template(
         "helpdesk_ticket.html", ticket=ticket, devices=devices, messages=messages,
         device_hits=device_hits, location_hits=location_hits,
-        spiceworks_link=core.ticket_link(ticket["spiceworks_number"]), **form_lists(db))
+        spiceworks_link=core.ticket_link(ticket["spiceworks_number"]), reply_draft=reply_draft,
+        mail=mail_state(), **form_lists(db))
 
 
 @bp.route("/<int:ticket_id>/update", methods=["POST"])
@@ -383,3 +398,171 @@ def delete(ticket_id):
     db.commit()
     flash(f"Deleted ticket #{ticket_id}.", "success")
     return redirect(url_for("helpdesk.queue"))
+
+
+# ---------------------------------------------------------------- email
+
+
+@bp.route("/<int:ticket_id>/reply", methods=["POST"])
+def reply(ticket_id):
+    """Email the requester from the help desk mailbox and record it on the ticket."""
+    db = core.get_db()
+    ticket = get_ticket(db, ticket_id)
+    body = (request.form.get("body") or "").strip()
+    if not body:
+        flash("Type a reply first.", "error")
+        return redirect(url_for("helpdesk.view", ticket_id=ticket_id) + "#reply")
+    mail = mail_state()
+    if not mail["connected"]:
+        flash("Email isn't connected yet, so replies can't be sent. Add it as a note instead.", "error")
+        return view(ticket_id, reply_draft=body)
+    author = option_value(db, "technician", request.form.get("author"))
+    signature = f"\n\n{author}\n{mail['mail_from_name']}" if author else f"\n\n{mail['mail_from_name']}"
+    try:
+        mailsync.send_on_ticket(mailsync.get_client(), db, ticket_id, body + signature.rstrip(),
+                                mail, mail["mailbox"], "reply", author)
+    except gmail_api.GmailError as e:
+        db.rollback()
+        flash(f"The reply wasn't sent: {e}", "error")
+        return view(ticket_id, reply_draft=body)
+    then = request.form.get("then")
+    new_status = then if then in ("Waiting", "Closed") else ("Open" if ticket["status"] == "New" else None)
+    if new_status and new_status != ticket["status"]:
+        db.execute("UPDATE tickets SET status = ?, closed_at = " +
+                   ("datetime('now')" if new_status == "Closed" else "NULL") + " WHERE id = ?",
+                   (new_status, ticket_id))
+        add_message(db, ticket_id, "event", f"Status: {ticket['status']} → {new_status}")
+    db.commit()
+    flash(f"Reply sent to {ticket['requester_email']}.", "success")
+    return redirect(url_for("helpdesk.view", ticket_id=ticket_id) + "#reply")
+
+
+@bp.route("/email/check", methods=["POST"])
+def email_check():
+    counts, error = mailsync.check_now()
+    if error:
+        flash(f"Couldn't check email: {error}", "error")
+    else:
+        new, replies = counts["new"], counts["replies"]
+        flash(f"Checked email: {new} new ticket{'s' if new != 1 else ''}, "
+              f"{replies} repl{'y' if replies == 1 else 'ies'} added"
+              + (f", {counts['skipped']} skipped" if counts["skipped"] else "") + ".", "success")
+    return redirect(request.form.get("next") or url_for("helpdesk.queue"))
+
+
+def redirect_uri():
+    """Where Google sends the browser back to after signing in: this computer, this port."""
+    return f"http://{request.host}/"
+
+
+@bp.route("/email", methods=["GET", "POST"])
+def email_setup():
+    path = current_app.config["SETTINGS_PATH"]
+    data_dir = mailsync.data_dir()
+    if request.method == "POST":
+        f = request.form
+        changes = {"mail_enabled": bool(f.get("mail_enabled")),
+                   "mail_auto_reply": bool(f.get("mail_auto_reply")),
+                   "mail_from_name": core.clean(f.get("mail_from_name")) or "IT Help Desk",
+                   # blank = accept anyone (saved as "", not removed, so it doesn't fall back to the default)
+                   "mail_allowed_domain": (core.clean(f.get("mail_allowed_domain")) or "").lstrip("@").lower()}
+        try:
+            changes["mail_interval"] = min(60, max(1, int(f.get("mail_interval", 2))))
+        except ValueError:
+            pass
+        mailbox = (core.clean(f.get("mail_mailbox")) or "").lower()
+        if mailbox and not EMAIL_RE.fullmatch(mailbox):
+            flash("The mailbox address doesn't look right.", "error")
+            return redirect(url_for("helpdesk.email_setup"))
+        old = app_settings.load(path).get("mail_mailbox")
+        if mailbox and mailbox != old:
+            changes["mail_mailbox"] = mailbox
+            secrets_data = gmail_api.load_secrets(data_dir)
+            if secrets_data.pop("refresh_token", None):  # connected to a different mailbox
+                gmail_api.save_secrets(data_dir, secrets_data)
+                flash(f"Mailbox changed to {mailbox}. Click Connect mailbox to sign in to it.", "warn")
+        upload = request.files.get("client_file")
+        if upload and upload.filename:
+            try:
+                client = gmail_api.read_client_file(upload.read().decode("utf-8", "replace"))
+            except gmail_api.GmailError as e:
+                flash(str(e), "error")
+                return redirect(url_for("helpdesk.email_setup"))
+            gmail_api.save_secrets(data_dir, client)  # a new client needs a new sign-in
+        app_settings.update(path, **changes)
+        flash("Email settings saved.", "success")
+        return redirect(url_for("helpdesk.email_setup"))
+    secrets_data = gmail_api.load_secrets(data_dir)
+    return render_template("helpdesk_email.html", mail=mail_state(),
+                           has_client=bool(secrets_data.get("client_id")),
+                           connected_as=secrets_data.get("connected_email"), redirect_uri=redirect_uri())
+
+
+@bp.route("/email/connect", methods=["POST"])
+def email_connect():
+    data_dir = mailsync.data_dir()
+    client = gmail_api.load_secrets(data_dir)
+    mailbox = mailsync.config()["mailbox"]
+    if not client.get("client_id"):
+        flash("Upload the OAuth client file from Google Cloud first (step 4).", "error")
+        return redirect(url_for("helpdesk.email_setup"))
+    if not mailbox:
+        flash("Enter the help desk mailbox address and save first.", "error")
+        return redirect(url_for("helpdesk.email_setup"))
+    if request.host.split(":")[0] not in ("127.0.0.1", "localhost"):
+        flash("Connect the mailbox from the computer running Device Inventory, at http://127.0.0.1.", "error")
+        return redirect(url_for("helpdesk.email_setup"))
+    verifier, challenge = gmail_api.pkce_pair()
+    state = secrets.token_urlsafe(24)
+    session["gmail_oauth"] = {"state": state, "verifier": verifier, "redirect_uri": redirect_uri()}
+    return redirect(gmail_api.auth_url(client["client_id"], redirect_uri(), state, challenge, mailbox))
+
+
+@bp.route("/email/oauth")
+def email_oauth():
+    pending = session.pop("gmail_oauth", None)
+    if not pending or request.args.get("state") != pending["state"]:
+        flash("That sign-in link has expired. Click Connect mailbox again.", "error")
+        return redirect(url_for("helpdesk.email_setup"))
+    if request.args.get("error"):
+        flash(f"Google sign-in was cancelled or refused ({request.args['error']}).", "error")
+        return redirect(url_for("helpdesk.email_setup"))
+    data_dir = mailsync.data_dir()
+    stored = gmail_api.load_secrets(data_dir)
+    mailbox = mailsync.config()["mailbox"]
+    try:
+        tokens = gmail_api.exchange_code(stored, request.args.get("code", ""), pending["redirect_uri"],
+                                         pending["verifier"])
+        client = gmail_api.GmailClient(stored["client_id"], stored["client_secret"], tokens["refresh_token"])
+        address = client.address().lower()
+    except gmail_api.GmailError as e:
+        flash(f"Couldn't connect: {e}", "error")
+        return redirect(url_for("helpdesk.email_setup"))
+    if address != mailbox:
+        flash(f"You signed in as {address}, but the help desk mailbox is set to {mailbox}. "
+              "Click Connect mailbox again and choose the help desk account.", "error")
+        return redirect(url_for("helpdesk.email_setup"))
+    gmail_api.save_secrets(data_dir, stored | {"refresh_token": tokens["refresh_token"],
+                                               "connected_email": address})
+    flash(f"Connected to {address}. Turn on \"Check this mailbox\" below, then send it a test email.", "success")
+    return redirect(url_for("helpdesk.email_setup"))
+
+
+@bp.route("/email/disconnect", methods=["POST"])
+def email_disconnect():
+    data_dir = mailsync.data_dir()
+    stored = gmail_api.load_secrets(data_dir)
+    stored.pop("refresh_token", None)
+    stored.pop("connected_email", None)
+    gmail_api.save_secrets(data_dir, stored)
+    app_settings.update(current_app.config["SETTINGS_PATH"], mail_enabled=False)
+    flash("Disconnected. Email is no longer checked or sent.", "success")
+    return redirect(url_for("helpdesk.email_setup"))
+
+
+@bp.before_app_request
+def finish_google_sign_in():
+    """Google returns to http://127.0.0.1:<port>/?state=…&code=…; pass it to email_oauth."""
+    if request.path == "/" and "state" in request.args and ("code" in request.args or "error" in request.args):
+        return redirect(url_for("helpdesk.email_oauth", **request.args))
+    return None

@@ -107,7 +107,8 @@
       opens an email to the help desk with the device's asset tag, model, serial number, location and assigned person
       filled in. Tickets copied from the old device ticket log keep their Spiceworks number; with the Spiceworks
       address (a ticket's web address with the number replaced by <code>{number}</code>) those numbers link to the
-      old ticket. IT staff names for assigning tickets are on the <a href="{{ url_for('lists') }}#technician">Lists</a> page.</p>
+      old ticket. IT staff names for assigning tickets are on the <a href="{{ url_for('lists') }}#technician">Lists</a> page.
+      To turn email to the help desk mailbox into tickets, see <a href="{{ url_for('helpdesk.email_setup') }}">Help desk email</a>.</p>
   </fieldset>
   <fieldset id="backups">
     <legend>Your data &amp; backups</legend>

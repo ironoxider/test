@@ -45,8 +45,19 @@ is no database server to set up.
     Spiceworks number (linked to Spiceworks if its address is set in Settings).
   - **Report a problem** on a device page opens an email to the help desk address set in Settings, with the
     device's details filled in.
-  - Still to come: reading and answering helpdesk@ email through the Gmail API (stage 2), and running on an
-    always-on campus server with Google sign-in (stage 3).
+- **Help desk email** (stage 2): connect a Google Workspace mailbox under **Help Desk → Email setup** (the page
+  walks through creating an "Internal" OAuth client in Google Cloud and signing in once as the mailbox; the access
+  is limited to that one mailbox and saved in `gmail.json`, which backups leave out).
+  - While Device Inventory runs, the mailbox is checked every few minutes (or click **Check now**). A new email
+    from an allowed address becomes a **New** ticket; asset tags and a room it mentions are linked; an optional
+    automatic reply gives the ticket number.
+  - Replies by email (same thread, a reply to one of our emails, or "[Ticket #12]" in the subject) are added to
+    their ticket and reopen it. Attachments are listed with a link to the email in Gmail.
+  - **Reply by email** on a ticket sends from the mailbox, threaded with the conversation, and can set the ticket
+    to Waiting or Closed.
+  - Auto-replies, bounces and outside senders are labelled "Help Desk/Skipped" in Gmail instead of becoming
+    tickets; imported mail is labelled "Help Desk/Imported". Nothing is deleted.
+  - Still to come: running on an always-on campus server with Google sign-in for IT staff (stage 3).
 - **CSV export and import**: export the current filtered view. When you import, a row whose asset
   tag already exists updates that device, and any other row adds a new one.
 

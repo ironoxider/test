@@ -42,14 +42,35 @@
       <article class="message message-{{ m.kind }}">
         <header>
           <strong>{{ m.author or ('Requester' if m.kind in ('description', 'incoming') else 'IT') }}</strong>
-          <span class="muted">{{ {'description': 'reported', 'note': 'internal note', 'reply': 'replied', 'incoming': 'replied'}[m.kind] }}
+          <span class="muted">{{ {'description': 'reported', 'note': 'internal note', 'reply': 'emailed the requester',
+            'incoming': 'replied by email', 'auto': 'automatic reply sent'}.get(m.kind, m.kind) }}
+            {%- if m.kind == 'description' and ticket.source == 'email' %} by email{% endif %}
             · {{ m.created_at|localtime }}</span>
+          {% if m.gmail_id and mail.mailbox %}<a class="small-note gmail-link" href="https://mail.google.com/mail/u/{{ mail.mailbox }}/#all/{{ m.gmail_id }}" target="_blank" rel="noopener">View in Gmail</a>{% endif %}
         </header>
         <div class="message-body">{{ m.body }}</div>
       </article>
       {% endif %}
     {% endfor %}
 
+    {% if mail.connected and ticket.requester_email %}
+    <form method="post" action="{{ url_for('helpdesk.reply', ticket_id=ticket.id) }}" id="reply" class="note-form reply-form device-form">
+      <label class="wide">Reply to {{ ticket.requester_name or ticket.requester_email }} by email
+        <textarea name="body" rows="5" placeholder="This is emailed to {{ ticket.requester_email }} from {{ mail.mailbox }}.">{{ reply_draft or '' }}</textarea>
+      </label>
+      <label>From{{ option_select('author', technicians, ticket.assigned_to, '(no name)', "IT staff member's name") }}</label>
+      <label>Then
+        <select name="then">
+          <option value="">Keep status{% if ticket.status == 'New' %} (becomes Open){% endif %}</option>
+          <option value="Waiting">Set to Waiting (on the requester)</option>
+          <option value="Closed">Close the ticket</option>
+        </select>
+      </label>
+      <div class="actions wide"><button type="submit">Send reply</button></div>
+    </form>
+    {% elif reply_draft %}
+    <p class="flash warn">Your unsent reply: <span class="message-body">{{ reply_draft }}</span></p>
+    {% endif %}
     <form method="post" action="{{ url_for('helpdesk.note', ticket_id=ticket.id) }}" id="add-note" class="note-form device-form">
       <label class="wide">Add an internal note
         <textarea name="body" rows="4" placeholder="What you found or did. Only IT sees notes."></textarea>
@@ -57,7 +78,8 @@
       <label>From{{ option_select('author', technicians, ticket.assigned_to, '(IT)', "IT staff member's name") }}</label>
       <label class="checkbox"><input type="checkbox" name="close" value="1"> Close the ticket too</label>
       <div class="actions wide"><button type="submit">Add note</button></div>
-      <p class="wide muted small-note">Replying to the requester by email comes with the helpdesk@ email connection.</p>
+      {% if not mail.connected %}<p class="wide muted small-note">To reply by email, <a href="{{ url_for('helpdesk.email_setup') }}">connect the help desk mailbox</a>.</p>
+      {% elif not ticket.requester_email %}<p class="wide muted small-note">Add the requester's email address (Details) to reply by email.</p>{% endif %}
     </form>
   </section>
 

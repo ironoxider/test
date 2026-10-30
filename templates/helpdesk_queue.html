@@ -18,6 +18,19 @@
   <a class="stat {{ 'alert' if counts.urgent }}" href="{{ url_for('helpdesk.queue', sort='priority') }}"><strong>{{ counts.urgent or 0 }}</strong><span>High or urgent</span></a>
 </section>
 
+<div class="mail-line muted small-note">
+  {% if mail.connected and mail.mail_enabled %}
+    Email: new mail to <strong>{{ mail.mailbox }}</strong> becomes tickets{% if mail.last_check %}; last checked {{ mail.last_check|ago }}{% endif %}.
+    {% if mail.last_error %}<span class="error-text">Last check failed: {{ mail.last_error }}</span>{% endif %}
+  {% elif mail.connected %}Email is connected to {{ mail.mailbox }} but checking is turned off.
+  {% else %}Email isn't connected yet; tickets are only created here.{% endif %}
+  {% if mail.connected %}
+  <form method="post" action="{{ url_for('helpdesk.email_check') }}" class="inline">
+    <button type="submit" class="link">Check now</button></form> ·
+  {% endif %}
+  <a href="{{ url_for('helpdesk.email_setup') }}">Email setup</a>
+</div>
+
 <nav class="tabs">
   {{ view_link('open', 'Open') }}{{ view_link('new', 'New') }}{{ view_link('waiting', 'Waiting') }}{{ view_link('closed', 'Closed') }}{{ view_link('all', 'All') }}
 </nav>

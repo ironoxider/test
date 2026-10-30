@@ -190,6 +190,8 @@ def init_db():
         upgrade_devices_table(db, schema)
     upgrade_options_table(db)
     old_tickets = rename_v1_tickets(db)
+    add_missing_columns(db, {"tickets": ["gmail_thread_id"],
+                             "ticket_messages": ["author_email", "message_id", "gmail_id"]})
     db.executescript(schema)
     if old_tickets:
         copy_v1_tickets(db)
@@ -235,6 +237,15 @@ def upgrade_devices_table(db, schema):
         raise
     finally:
         db.execute("PRAGMA foreign_keys = ON")
+
+
+def add_missing_columns(db, wanted):
+    """Add TEXT columns that newer versions use to tables an older version created."""
+    for table, names in wanted.items():
+        have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+        for name in names:
+            if have and name not in have:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {name} TEXT")
 
 
 def upgrade_options_table(db):
@@ -394,7 +405,8 @@ def is_this_computer(addr):
 
 
 # Pages that can only be opened on the computer running the app.
-LOCAL_ONLY = {"settings", "backup_download", "backup_now"}
+LOCAL_ONLY = {"settings", "backup_download", "backup_now", "helpdesk.email_setup",
+              "helpdesk.email_connect", "helpdesk.email_oauth", "helpdesk.email_disconnect"}
 
 
 def check_remote_access():

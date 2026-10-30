@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     location_id       INTEGER REFERENCES locations(id) ON DELETE SET NULL,
     source            TEXT NOT NULL DEFAULT 'manual',  -- manual, email, spiceworks
     spiceworks_number TEXT,
+    gmail_thread_id   TEXT,                            -- the ticket's email thread
     created_at        TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
     closed_at         TEXT
@@ -82,14 +83,21 @@ CREATE TABLE IF NOT EXISTS ticket_devices (
 CREATE INDEX IF NOT EXISTS idx_ticket_devices_device ON ticket_devices(device_id);
 
 -- kind: description (the original request), note (internal), reply (to the requester),
+-- auto (the automatic "we got it" email),
 -- incoming (a reply from the requester), event (a change such as "Status: Open -> Closed").
 CREATE TABLE IF NOT EXISTS ticket_messages (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
     kind       TEXT NOT NULL,
-    author     TEXT,
-    body       TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    author       TEXT,
+    author_email TEXT,
+    body         TEXT NOT NULL,
+    message_id   TEXT,  -- the email's Message-ID header, to match replies
+    gmail_id     TEXT,  -- Gmail's id for the email, so it's only imported once
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket ON ticket_messages(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_messages_message_id ON ticket_messages(message_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_messages_gmail ON ticket_messages(gmail_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_thread ON tickets(gmail_thread_id);

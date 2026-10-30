@@ -174,3 +174,15 @@ th, td { padding: 8px 8px; }
 .side-delete { text-align: right; }
 .section-heading { margin-top: 18px; }
 .section-heading h2 { margin: 0; }
+.mail-line { margin: 0 0 10px; }
+.mail-line form.inline { display: inline; }
+.mail-line .error-text, .error-text { color: #c62828; }
+.message-auto, .message-reply { border-left: 4px solid #2e7d32; }
+.gmail-link { margin-left: auto; }
+.reply-form { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 12px 14px; }
+.email-status { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+  margin: 12px 0; max-width: 900px; }
+.email-status .actions form { display: inline; }
+.connect-form { display: flex; gap: 12px; align-items: center; margin: 14px 0; }
+.steps li { margin: 8px 0; max-width: 900px; }
+.mail-line button.link, .email-status button.link:not(.danger) { color: var(--accent); font: inherit; cursor: pointer; }

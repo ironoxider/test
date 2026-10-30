@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Help desk email · Device Inventory{% endblock %}
+{% block content %}
+<p class="muted small-note"><a href="{{ url_for('helpdesk.queue') }}">← Help Desk</a></p>
+<h1>Help desk email</h1>
+<p>Device Inventory can read a Google Workspace mailbox and turn each new email into a ticket, then send your
+  replies from that address. Test it with a separate mailbox first (for example
+  <code>helpdesk-test@thehudsonschool.org</code>); switching to helpdesk@ later only means changing the address below
+  and connecting again.</p>
+
+<div class="side-box email-status">
+  {% if mail.connected %}
+    <p><strong>Connected</strong> to <code>{{ mail.mailbox }}</code>.
+      {% if mail.mail_enabled %}Checked every {{ mail.mail_interval }} minute(s) while Device Inventory is running.
+      {% else %}<strong>Checking is turned off</strong>; tick "Check this mailbox" below.{% endif %}</p>
+    {% if mail.last_check %}<p class="muted">Last check {{ mail.last_check|ago }}{% if mail.last_result and not mail.last_error %}:
+      {{ mail.last_result.new }} new ticket{{ 's' if mail.last_result.new != 1 }}, {{ mail.last_result.replies }} repl{{ 'y' if mail.last_result.replies == 1 else 'ies' }}, {{ mail.last_result.skipped }} skipped{% endif %}.</p>{% endif %}
+    {% if mail.last_error %}<p class="flash error">Last check failed: {{ mail.last_error }}</p>{% endif %}
+    <div class="actions">
+      <form method="post" action="{{ url_for('helpdesk.email_check') }}">
+        <input type="hidden" name="next" value="{{ url_for('helpdesk.email_setup') }}">
+        <button type="submit" class="secondary">Check now</button></form>
+      <form method="post" action="{{ url_for('helpdesk.email_disconnect') }}" onsubmit="return confirm('Stop reading and sending email for the help desk?');">
+        <button type="submit" class="link danger">Disconnect</button></form>
+    </div>
+  {% else %}
+    <p><strong>Not connected.</strong> {% if not has_client %}Follow the steps below.{% elif not mail.mailbox %}Enter the mailbox address and save.{% else %}Click <strong>Connect mailbox</strong> (step 6).{% endif %}</p>
+  {% endif %}
+</div>
+
+<form method="post" enctype="multipart/form-data" class="device-form">
+  <fieldset>
+    <legend>Mailbox</legend>
+    <label>Help desk mailbox address
+      <input type="email" name="mail_mailbox" value="{{ mail.mailbox or '' }}" placeholder="helpdesk-test@thehudsonschool.org" spellcheck="false"></label>
+    <label>Name on emails sent
+      <input name="mail_from_name" value="{{ mail.mail_from_name }}" placeholder="IT Help Desk"></label>
+    <label>Only accept new requests from
+      <input name="mail_allowed_domain" value="{{ mail.mail_allowed_domain or '' }}" placeholder="thehudsonschool.org (blank = anyone)"></label>
+    <label>Check every (minutes)
+      <input type="number" name="mail_interval" min="1" max="60" value="{{ mail.mail_interval }}"></label>
+    <label class="checkbox wide"><input type="checkbox" name="mail_enabled" value="1" {% if mail.mail_enabled %}checked{% endif %}>
+      Check this mailbox and create tickets from new email</label>
+    <label class="checkbox wide"><input type="checkbox" name="mail_auto_reply" value="1" {% if mail.mail_auto_reply %}checked{% endif %}>
+      Send an automatic reply with the ticket number when a new ticket is created</label>
+    <label class="wide">Google Cloud OAuth client file (.json, step 4)
+      <input type="file" name="client_file" accept=".json,application/json"></label>
+    <p class="wide muted small-note">{% if has_client %}A client file is saved. Upload a new one only to replace it.{% else %}No client file yet.{% endif %}
+      Email from other addresses, automatic replies and bounces are labelled "Help Desk/Skipped" in Gmail
+      instead of becoming tickets (replies on an existing ticket are always accepted).</p>
+    <div class="actions wide"><button type="submit">Save</button></div>
+  </fieldset>
+</form>
+{% if has_client and mail.mailbox and not mail.connected %}
+<form method="post" action="{{ url_for('helpdesk.email_connect') }}" class="connect-form">
+  <button type="submit">Connect mailbox</button>
+  <span class="muted">Sign in as <strong>{{ mail.mailbox }}</strong> when Google asks.</span>
+</form>
+{% endif %}
+
+<h2>Setting it up (one time)</h2>
+<ol class="steps">
+  <li><strong>Create the mailbox.</strong> In the Google Admin console, add a user such as
+    <code>helpdesk-test@thehudsonschool.org</code>, then sign in to it once so it's ready.</li>
+  <li><strong>Create a Google Cloud project.</strong> Signed in with your admin account, open
+    <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a>
+    and create a project (for example "Help Desk") in your organization.</li>
+  <li><strong>Turn on the Gmail API:</strong> APIs &amp; Services → Library → search "Gmail API" → Enable.</li>
+  <li><strong>Create the sign-in client.</strong> Open <em>Google Auth Platform</em> (older name: OAuth consent screen):
+    <ul>
+      <li>Get started: app name "Device Inventory Help Desk", your email as support and contact email, and
+        <strong>Audience: Internal</strong> (only your school's accounts can use it, and no Google review is needed).</li>
+      <li>Clients → Create client → Application type <strong>Desktop app</strong> → Create, then
+        <strong>Download JSON</strong>.</li>
+    </ul></li>
+  <li><strong>Here:</strong> enter the mailbox address, choose the downloaded .json file, and click Save.</li>
+  <li><strong>Click Connect mailbox</strong> and sign in as the help desk mailbox (not your own account), then
+    click Allow. Google may warn that the app is unverified; that's expected for an internal app.</li>
+  <li><strong>Tick "Check this mailbox"</strong>, Save, and send the mailbox a test email from your own account.
+    Within a couple of minutes (or click Check now) it appears on the Help Desk page.</li>
+</ol>
+<p class="muted small-note">What it can do: read, label and send mail in that one mailbox only; it can't delete mail
+  or open any other account. The sign-in is saved in <code>gmail.json</code> next to the inventory (not in backups).
+  If your Workspace limits third-party apps, allow this app under Admin console → Security → API controls →
+  App access control. Sign-in returns to <code>{{ redirect_uri }}</code>, so connect from the computer that runs
+  Device Inventory. Disconnect here, or remove access at myaccount.google.com/permissions while signed in as the mailbox.</p>
+{% endblock %}

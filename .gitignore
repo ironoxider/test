@@ -9,3 +9,5 @@ dist/
 settings.json
 inventory.db.moved
 settings.json.moved
+gmail.json
+gmail.json.tmp

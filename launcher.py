@@ -57,7 +57,7 @@ def selftest():
 
         client = create_app({"TESTING": True}).test_client()
         for path in ["/", "/devices/new", "/locations", "/lists", "/import", "/settings",
-                     "/helpdesk/", "/helpdesk/new",
+                     "/helpdesk/", "/helpdesk/new", "/helpdesk/email",
                      "/static/vendor/zxing.min.js", "/static/vendor/heic2any.min.js",
                      "/static/vendor/qrcode.js",
                      "/static/photo-fill.js"]:
@@ -132,6 +132,13 @@ def main():
     print(" Keep this window open while you use it.")
     print(" To stop, close this window (or press Ctrl+C).")
     print("=" * 60, flush=True)
+
+    import mailsync
+    mailsync.start_background(app)  # help desk email, if it's set up and turned on
+    with app.app_context():
+        mail = mailsync.config()
+        if mail["mail_enabled"] and mailsync.connected():
+            print(f" Help desk email: checking {mail['mailbox']} every {mail['mail_interval']} min.", flush=True)
 
     if not os.environ.get("INVENTORY_NO_BROWSER"):
         threading.Timer(1.0, webbrowser.open, args=[local_url]).start()
