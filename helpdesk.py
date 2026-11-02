@@ -35,8 +35,10 @@ SORTS = {
 FIELD_NAMES = {"subject": "Subject", "requester_name": "Requester", "requester_email": "Requester email",
                "status": "Status", "priority": "Priority", "category": "Category",
                "assigned_to": "Assigned to", "location_id": "Location"}
-# Looks like an asset tag: letters, a dash, digits (CB-494, AC-120, Dell-1).
-TAG_RE = re.compile(r"\b[A-Za-z]{1,6}-\d{1,6}\b")
+# Something in free text that may be an asset tag: letters, then digits, with a dash, a space or
+# nothing between them ("CB-494", "cb 494", "CB494"). Only tags that exist are linked.
+TAG_IN_TEXT_RE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{1,6})[-\s]?(\d{1,6})(?![A-Za-z0-9])")
+SERIAL_MIN_LENGTH = 6
 EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 
@@ -65,14 +67,34 @@ def linked_devices(db, ticket_id):
         "ORDER BY d.asset_tag IS NULL, d.asset_tag, d.name", (ticket_id,)).fetchall()
 
 
+def tag_key(tag):
+    """A tag's comparable form, so "cb494", "CB 494" and "CB-0494" all mean CB-494."""
+    m = re.fullmatch(r"([A-Za-z]+)[-\s]?0*(\d+)", tag.strip())
+    return f"{m.group(1).upper()}-{int(m.group(2))}" if m else tag.strip().upper()
+
+
+def devices_by_tag_key(db):
+    """Tagged devices by tag_key(); a key two devices share is left out as ambiguous."""
+    found, shared = {}, set()
+    for device in db.execute("SELECT * FROM devices WHERE asset_tag IS NOT NULL"):
+        key = tag_key(device["asset_tag"])
+        if key in found:
+            shared.add(key)
+        found[key] = device
+    return {k: d for k, d in found.items() if k not in shared}
+
+
 def find_devices(db, text):
     """Devices named by asset tag in `text` ("CB-494, AC-120"). Returns (devices, unknown tags)."""
-    found, unknown = [], []
-    for tag in re.split(r"[\s,;]+", text or ""):
+    found, unknown, by_key = [], [], None
+    for tag in re.split(r"[,;]+|\s+(?![0-9])", text or ""):
         tag = tag.strip()
         if not tag:
             continue
         row = db.execute("SELECT * FROM devices WHERE asset_tag = ?", (tag,)).fetchone()
+        if row is None:
+            by_key = by_key if by_key is not None else devices_by_tag_key(db)
+            row = by_key.get(tag_key(tag))
         if row is None:
             unknown.append(tag)
         elif row["id"] not in [d["id"] for d in found]:
@@ -80,7 +102,56 @@ def find_devices(db, text):
     return found, unknown
 
 
-def link_devices(db, ticket, devices):
+def mentioned_devices(db, text):
+    """Devices whose asset tag or serial number appears in free text."""
+    found = []
+    by_key = devices_by_tag_key(db)
+    for m in TAG_IN_TEXT_RE.finditer(text or ""):
+        device = by_key.get(f"{m.group(1).upper()}-{int(m.group(2))}")
+        if device and device["id"] not in [d["id"] for d in found]:
+            found.append(device)
+    words = {w.upper() for w in re.findall(rf"[A-Za-z0-9]{{{SERIAL_MIN_LENGTH},}}", text or "")}
+    if words:
+        for device in db.execute("SELECT * FROM devices WHERE serial_number IS NOT NULL"):
+            serial = device["serial_number"].strip().upper()
+            if len(serial) >= SERIAL_MIN_LENGTH and serial in words \
+                    and device["id"] not in [d["id"] for d in found]:
+                found.append(device)
+    return found
+
+
+def mentioned_locations(db, text):
+    """Locations named in free text: "Room W401" is found from "W401"; other names must appear whole."""
+    hits = []
+    for loc in db.execute("SELECT id, name FROM locations ORDER BY name"):
+        core_name = re.sub(r"^room\s+", "", loc["name"], flags=re.I)
+        if len(core_name) >= 3 and re.search(rf"(?<![\w-]){re.escape(core_name)}(?![\w-])", text or "", re.I):
+            hits.append(loc)
+    return hits
+
+
+def auto_link(db, ticket_id, text, where="the ticket"):
+    """Link devices mentioned in `text` and, if the ticket has no location yet, set one.
+
+    The location comes from the linked devices if they're all in one room, otherwise from a
+    single room named in the text. Returns the devices newly linked.
+    """
+    ticket = get_ticket(db, ticket_id)
+    linked = {d["id"] for d in linked_devices(db, ticket_id)}
+    new = [d for d in mentioned_devices(db, text) if d["id"] not in linked]
+    link_devices(db, ticket, new, f"mentioned in {where}")
+    if not ticket["location_id"]:
+        rooms = {d["location_id"] for d in linked_devices(db, ticket_id) if d["location_id"]}
+        places = mentioned_locations(db, text)
+        location_id = rooms.pop() if len(rooms) == 1 else (places[0]["id"] if len(places) == 1 and not rooms else None)
+        if location_id:
+            db.execute("UPDATE tickets SET location_id = ? WHERE id = ?", (location_id, ticket_id))
+            add_message(db, ticket_id, "event",
+                        f"Location: (none) → {core.location_name(db, location_id)} (mentioned in {where})")
+    return new
+
+
+def link_devices(db, ticket, devices, reason=None):
     """Link devices to a ticket, noting it on both the ticket and each device's history."""
     linked = 0
     for device in devices:
@@ -88,7 +159,8 @@ def link_devices(db, ticket, devices):
                          (ticket["id"], device["id"]))
         if cur.rowcount:
             linked += 1
-            add_message(db, ticket["id"], "event", f"Linked {core.device_label(device)}.")
+            add_message(db, ticket["id"], "event",
+                        f"Linked {core.device_label(device)}" + (f" ({reason})." if reason else "."))
             db.execute("INSERT INTO device_history (device_id, field, new_value) VALUES (?, 'ticket', ?)",
                        (device["id"], f"Ticket #{ticket['id']} ({ticket['subject']}) linked"))
     return linked
@@ -100,15 +172,8 @@ def suggestions(db, ticket, devices):
         "SELECT body FROM ticket_messages WHERE ticket_id = ? AND kind IN ('description', 'incoming')",
         (ticket["id"],))])
     linked = {d["id"] for d in devices}
-    found, _ = find_devices(db, " ".join(TAG_RE.findall(text)))
-    device_hits = [d for d in found if d["id"] not in linked]
-    location_hits = []
-    if not ticket["location_id"]:
-        for loc in db.execute("SELECT id, name FROM locations ORDER BY name"):
-            # "Room W401" is found from "W401" in the text; other names must appear whole.
-            core_name = re.sub(r"^room\s+", "", loc["name"], flags=re.I)
-            if len(core_name) >= 3 and re.search(rf"(?<![\w-]){re.escape(core_name)}(?![\w-])", text, re.I):
-                location_hits.append(loc)
+    device_hits = [d for d in mentioned_devices(db, text) if d["id"] not in linked]
+    location_hits = [] if ticket["location_id"] else mentioned_locations(db, text)
     return device_hits, location_hits
 
 
@@ -249,6 +314,7 @@ def new():
                             ticket["requester_name"] or ticket["requester_email"])
             add_message(db, ticket_id, "event", "Ticket created.")
             link_devices(db, get_ticket(db, ticket_id), devices)
+            auto_link(db, ticket_id, f"{ticket['subject']}\n{ticket['description'] or ''}")
             db.commit()
             flash(f"Created ticket #{ticket_id}.", "success")
             return redirect(url_for("helpdesk.view", ticket_id=ticket_id))
@@ -319,6 +385,8 @@ def update(ticket_id):
         if "status" in changed:
             sets.append("closed_at = " + ("datetime('now')" if changed["status"] == "Closed" else "NULL"))
         db.execute(f"UPDATE tickets SET {', '.join(sets)} WHERE id = ?", values + [ticket_id])
+        if "subject" in changed:
+            auto_link(db, ticket_id, changed["subject"], "the subject")
         for field, new_value in changed.items():
             old_value = ticket[field]
             if field == "location_id":

@@ -142,7 +142,7 @@ def test_new_email_becomes_ticket_with_device_location_and_acknowledgement(app, 
     assert "1 new ticket, 0 replies added" in check(client)
     page = text(client.get("/helpdesk/1"))
     for expected in ("Projector in W401 won&#39;t turn on", "CB-494 also won&#39;t charge.", "Grace Hopper",
-                     "Linked CB-494.", "Room W401", "Ticket created from an email.", "photo.jpg",
+                     "Linked CB-494 (mentioned in the email).", "Room W401", "Ticket created from an email.", "photo.jpg",
                      "automatic reply sent", "View in Gmail"):
         assert expected in page, expected
     row = db_for(app).execute("SELECT status, source, requester_email, gmail_thread_id FROM tickets").fetchone()
@@ -175,6 +175,17 @@ def test_replies_join_their_ticket_and_reopen_it(app, client, gmail):
         assert expected in page
     assert db_for(app).execute("SELECT COUNT(*) FROM tickets").fetchone()[0] == 1
     assert len(gmail.sent) == 1  # no acknowledgement for replies
+
+
+def test_reply_mentioning_a_device_links_it(app, client, gmail):
+    add_device(client, tag="CB-500", location="Room W402")
+    gmail.deliver(make_email(subject="Laptop issue", body="It won't start."))
+    check(client)
+    gmail.deliver(make_email(subject="Re: Laptop issue", body="Sorry, it's CB500.", msg_id="<a2@x>"))
+    check(client)
+    page = text(client.get("/helpdesk/1"))
+    assert "Linked CB-500 (mentioned in a reply)." in page
+    assert "Location: (none) → Room W402 (mentioned in a reply)" in page
 
 
 def test_outside_senders_auto_replies_and_own_mail_skipped(app, client, gmail):

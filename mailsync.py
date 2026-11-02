@@ -266,6 +266,7 @@ def add_incoming(db, ticket, parsed, gmail_id):
     if ticket["status"] in ("Closed", "Waiting"):
         db.execute("UPDATE tickets SET status = 'Open', closed_at = NULL WHERE id = ?", (ticket["id"],))
         hd.add_message(db, ticket["id"], "event", f"Status: {ticket['status']} → Open (the requester replied)")
+    hd.auto_link(db, ticket["id"], parsed["body"], "a reply")
 
 
 def create_from_email(db, parsed, gmail_id, thread_id):
@@ -281,18 +282,8 @@ def create_from_email(db, parsed, gmail_id, thread_id):
                (ticket_id, parsed["from_name"] or parsed["from_email"], parsed["from_email"],
                 body_with_attachments(parsed), parsed["message_id"], gmail_id))
     hd.add_message(db, ticket_id, "event", "Ticket created from an email.")
-    # Link what the email mentions: asset tags that exist, and a room if exactly one matches.
-    ticket = hd.get_ticket(db, ticket_id)
-    device_hits, location_hits = hd.suggestions(db, ticket, [])
-    if device_hits:
-        hd.link_devices(db, ticket, device_hits)
-    rooms = {d["location_id"] for d in device_hits if d["location_id"]}
-    location_id = rooms.pop() if len(rooms) == 1 else (
-        location_hits[0]["id"] if len(location_hits) == 1 and not rooms else None)
-    if location_id:
-        db.execute("UPDATE tickets SET location_id = ? WHERE id = ?", (location_id, ticket_id))
-        hd.add_message(db, ticket_id, "event",
-                       f"Location: (none) → {core.location_name(db, location_id)} (mentioned in the email)")
+    # Link the devices (asset tags or serial numbers) and room the email mentions.
+    hd.auto_link(db, ticket_id, f"{subject}\n{parsed['body']}", "the email")
     return ticket_id
 
 

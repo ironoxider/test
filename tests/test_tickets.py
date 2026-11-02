@@ -120,22 +120,58 @@ def test_note_opens_new_ticket_and_can_close(client):
                                                     follow_redirects=True))
 
 
-def test_link_unlink_devices_and_suggestions(client):
+def test_mentioned_devices_link_automatically_and_can_be_unlinked(client):
     add_device(client)
     add_device(client, tag="AC-120", name="Desktop", location="Room W401")
     ticket_id = new_ticket(client, devices="", subject="Desktop AC-120 in W401 is slow",
                            description="Also CB-494 won't charge")
     page = text(client.get(f"/helpdesk/{ticket_id}"))
-    assert "Link AC-120" in page and "Link CB-494" in page and "Set location Room W401" in page
-    page = text(client.post(f"/helpdesk/{ticket_id}/devices", data={"tags": "AC-120, nope-9"},
-                            follow_redirects=True))
-    assert "No device has the asset tag nope-9" in page and "Linked AC-120" in page
-    assert "Location: (none) → Room W401" in page  # taken from the device
-    assert "Link AC-120" not in page and "Set location" not in page
+    assert "Linked AC-120 (mentioned in the ticket)." in page and "Linked CB-494 (mentioned in the ticket)." in page
+    # The two devices are in different rooms, so the location is only suggested.
+    assert "Set location Room W401" in page and "Link AC-120" not in page
+    page = text(client.post(f"/helpdesk/{ticket_id}/devices", data={"tags": "nope-9"}, follow_redirects=True))
+    assert "No device has the asset tag nope-9" in page
     ac_id = db_for(client).execute("SELECT id FROM devices WHERE asset_tag = 'AC-120'").fetchone()[0]
     page = text(client.post(f"/helpdesk/{ticket_id}/devices/{ac_id}/remove", follow_redirects=True))
-    assert "Unlinked AC-120" in page
+    assert "Unlinked AC-120" in page and "Link AC-120" in page  # offered again, not forced back
     assert "Ticket #1 (Desktop AC-120 in W401 is slow) unlinked" in text(client.get(f"/devices/{ac_id}"))
+
+
+def test_loose_tag_spellings_and_serial_numbers(client):
+    add_device(client, tag="CB-494", serial_number="NXH8VAA006021066B77600")
+    add_device(client, tag="AC-092", location="Room W403")
+    add_device(client, tag="CB-500", serial_number="PF5KAJRZ")
+    ticket_id = new_ticket(client, devices="", subject="cb494 and AC 92 broken",
+                           description="Serial on the third one is pf5kajrz. Also ZZ-1 and room 204.")
+    linked = {r[0] for r in db_for(client).execute(
+        "SELECT d.asset_tag FROM ticket_devices td JOIN devices d ON d.id = td.device_id WHERE td.ticket_id = ?",
+        (ticket_id,))}
+    assert linked == {"CB-494", "AC-092", "CB-500"}
+    # The tag box accepts the same loose spellings.
+    other = new_ticket(client, subject="Typed tags", description="", devices="ac-92, cb 500")
+    assert db_for(client).execute("SELECT COUNT(*) FROM ticket_devices WHERE ticket_id = ?",
+                                  (other,)).fetchone()[0] == 2
+
+
+def test_ambiguous_tags_are_not_guessed(client):
+    add_device(client, tag="AC-92")
+    add_device(client, tag="AC-092")
+    ticket_id = new_ticket(client, devices="", subject="AC-092 again", description="")
+    page = text(client.get(f"/helpdesk/{ticket_id}"))
+    # The exact tag still works in the tag box; the free text doesn't pick one of the two.
+    assert "Linked" not in page
+    client.post(f"/helpdesk/{ticket_id}/devices", data={"tags": "AC-092"})
+    assert "Linked AC-092." in text(client.get(f"/helpdesk/{ticket_id}"))
+
+
+def test_location_set_from_single_room_and_subject_edit_links(client):
+    add_device(client, tag="CB-494", location="Room W401")
+    ticket_id = new_ticket(client, devices="", subject="Chromebook won't charge", description="")
+    assert "Linked" not in text(client.get(f"/helpdesk/{ticket_id}"))
+    page = text(client.post(f"/helpdesk/{ticket_id}/update", data={"subject": "CB-494 won't charge"},
+                            follow_redirects=True))
+    assert "Linked CB-494 (mentioned in the subject)." in page
+    assert "Location: (none) → Room W401 (mentioned in the subject)" in page
 
 
 def test_queue_filters_and_search(client):

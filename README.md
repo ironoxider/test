@@ -36,7 +36,12 @@ is no database server to set up.
   - Each ticket has a requester, subject and description, status (New, Open, Waiting, Closed), priority,
     category, the IT staff member it's assigned to, a location, and any number of linked devices.
   - The ticket page shows the whole history: the request, internal notes, and every change ("Status: Open →
-    Closed", "Linked CB-494"). Asset tags and rooms mentioned in a ticket are offered as one-click links.
+    Closed", "Linked CB-494").
+  - **Devices are linked automatically** when a ticket's subject, description or an email reply mentions their
+    asset tag (written CB-494, CB494, cb 494, or AC-92 for AC-092) or their serial number. Only devices in the
+    inventory are linked; a spelling that could mean two devices is left for you to choose. If the ticket has no
+    location yet, it takes the room of the linked devices, or a single room the text names (e.g. "W401").
+    Unlinking a device keeps it unlinked, and it's offered as a one-click **Link** button instead.
   - Start a ticket from **+ New ticket**, or from a device's page (the device and its room are filled in).
     Device pages list their tickets, the Locations page counts open tickets per room, and the queue filters by
     status, assignee, priority, category and location and searches ticket numbers, text, people and asset tags.
