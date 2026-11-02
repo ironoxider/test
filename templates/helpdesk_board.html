@@ -7,9 +7,12 @@
   <title>Help Desk board</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="board-page">
+<body class="board-page{{ ' siren' if siren }}">
+  {# The siren: shown while the alert is on and no light is connected (Help Desk → Office light). #}
+  <div class="siren-sweep" aria-hidden="true"></div>
   <header class="board-head">
     <h1>Help Desk</h1>
+    <div class="siren-beacon" aria-hidden="true"><div class="siren-dome"><div class="siren-beam"></div></div><div class="siren-base"></div></div>
     <div class="board-tools">
       <span id="board-clock" class="board-clock"></span>
       <span id="board-status" class="muted"></span>
@@ -72,6 +75,7 @@
       const fresh = holder.firstElementChild;
       const arrived = ids(fresh).filter(function (id) { return !seen.has(id); });
       document.getElementById("live").replaceWith(fresh);
+      document.body.classList.toggle("siren", fresh.dataset.siren === "1");  // outside #live, so it keeps spinning
       arrived.forEach(function (id) {
         const card = fresh.querySelector('.board-ticket[data-id="' + id + '"]');
         if (card) card.classList.add("just-arrived");

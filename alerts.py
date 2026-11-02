@@ -10,13 +10,20 @@ those two need the light key (when "Allow phones and other computers" is off).
 """
 
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 from flask import current_app
 
 import app_settings
 
-DEFAULTS = {"light_new": True, "light_replies": False, "light_urgent": True, "light_clear_on_open": True}
+DEFAULTS = {"light_new": True, "light_replies": False, "light_urgent": True, "light_clear_on_open": True,
+            # The siren animation on the board: "auto" (only when no light is connected), "always", "never".
+            "board_siren": "auto"}
+SIREN_MODES = ("auto", "always", "never")
+# When the light script last asked for the status (kept in memory, not written to disk every few seconds).
+_light_seen = {"at": 0.0}
+LIGHT_CONNECTED_SECONDS = 30
 REASONS = {"new": "New ticket", "reply": "Requester replied", "urgent": "High or urgent ticket",
            "raised": "Set to high or urgent", "test": "Test"}
 
@@ -79,6 +86,22 @@ def acknowledge():
 def test(seconds=15):
     until = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime("%Y-%m-%d %H:%M:%S")
     app_settings.update(current_app.config["SETTINGS_PATH"], light_test_until=until)
+
+
+def light_checked_in():
+    _light_seen["at"] = time.time()
+
+
+def light_connected():
+    return time.time() - _light_seen["at"] < LIGHT_CONNECTED_SECONDS
+
+
+def siren_on_board(current_state):
+    """Whether the board should show the siren animation right now."""
+    mode = config()["board_siren"]
+    if not current_state["light"] or mode == "never":
+        return False
+    return mode == "always" or not light_connected()
 
 
 def state(db):

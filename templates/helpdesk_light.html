@@ -8,6 +8,8 @@
   <code>pi/PI_SETUP.md</code> for wiring and setup.</p>
 
 <div class="email-status">
+  <p class="muted">{% if light_connected %}A light is connected (it checked in within the last 30 seconds).
+    {% else %}No light is connected right now{% if cfg.board_siren == 'auto' %}, so the board shows the siren instead{% endif %}.{% endif %}</p>
   <p><strong>The light is {{ 'ON' if state.light else 'off' }}</strong>{% if state.light %}:
     {{ state.reason_text }}{% if state.ticket %}, #{{ state.ticket.id }} {{ state.ticket.subject }}{% endif %}
     {% if state.alerts > 1 %}(and {{ state.alerts - 1 }} more){% endif %}{% endif %}.</p>
@@ -31,6 +33,12 @@
       Replies from requesters on open tickets</label>
     <label class="checkbox wide"><input type="checkbox" name="light_clear_on_open" value="1" {% if cfg.light_clear_on_open %}checked{% endif %}>
       Turn it off once someone opens the ticket in Device Inventory (otherwise only the button turns it off)</label>
+    <label class="wide">Siren animation on the board
+      <select name="board_siren">
+        <option value="auto" {% if cfg.board_siren == 'auto' %}selected{% endif %}>Only when no light is connected</option>
+        <option value="always" {% if cfg.board_siren == 'always' %}selected{% endif %}>Always, with the light</option>
+        <option value="never" {% if cfg.board_siren == 'never' %}selected{% endif %}>Never</option>
+      </select></label>
     <div class="actions wide"><button type="submit">Save</button></div>
   </fieldset>
 </form>

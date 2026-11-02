@@ -1,5 +1,5 @@
 {# The part of the board that refreshes. data-unread lists unread ticket ids so the page can spot new ones. #}
-<div id="live" data-unread="{{ unread|map(attribute='id')|join(',') }}">
+<div id="live" data-unread="{{ unread|map(attribute='id')|join(',') }}" data-siren="{{ '1' if siren else '' }}">
   {% if light.light %}
   <div class="board-alert">
     <span><strong>Light on:</strong> {{ light.reason_text }}{% if light.ticket %} · #{{ light.ticket.id }} {{ light.ticket.subject }}{% endif %}{% if light.alerts > 1 %} (+{{ light.alerts - 1 }} more){% endif %}</span>

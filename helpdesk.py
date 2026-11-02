@@ -628,7 +628,9 @@ def board_data(db):
     unread = db.execute(columns + " WHERE t.unread = 1 ORDER BY t.updated_at DESC LIMIT 12").fetchall()
     queue = db.execute(columns + f" WHERE t.status != 'Closed' AND t.unread = 0 ORDER BY {PRIORITY_RANK},"
                        " t.created_at LIMIT 15").fetchall()
-    return {"counts": counts, "unread": unread, "queue": queue, "mail": mail_state(), "light": alerts.state(db)}
+    light = alerts.state(db)
+    return {"counts": counts, "unread": unread, "queue": queue, "mail": mail_state(), "light": light,
+            "siren": alerts.siren_on_board(light)}
 
 
 @bp.route("/board")
@@ -719,7 +721,9 @@ def finish_google_sign_in():
 def light_status():
     """What the alert light should do, for pi/helpdesk_light.py (JSON)."""
     from flask import jsonify
-    return jsonify(alerts.state(core.get_db()))
+    if request.headers.get("X-Helpdesk-Client") == "light":
+        alerts.light_checked_in()  # the light is connected, so the board needn't show the siren
+    return jsonify(alerts.state(core.get_db()) | {"light_connected": alerts.light_connected()})
 
 
 @bp.route("/light/ack", methods=["POST"])
@@ -743,10 +747,13 @@ def light_setup():
             alerts.new_key()
             flash("Made a new key. Update it on the Raspberry Pi if it runs on another computer.", "success")
         else:
-            app_settings.update(current_app.config["SETTINGS_PATH"], **{
-                name: bool(f.get(name)) for name in alerts.DEFAULTS})
+            changes = {name: bool(f.get(name)) for name in alerts.DEFAULTS if name != "board_siren"}
+            if f.get("board_siren") in alerts.SIREN_MODES:
+                changes["board_siren"] = f["board_siren"]
+            app_settings.update(current_app.config["SETTINGS_PATH"], **changes)
             flash("Light settings saved.", "success")
         return redirect(url_for("helpdesk.light_setup"))
     status_url = url_for("helpdesk.light_status", _external=True)
     return render_template("helpdesk_light.html", cfg=alerts.config(), state=alerts.state(core.get_db()),
+                           light_connected=alerts.light_connected(),
                            key=alerts.key(), status_url=status_url, link_base=mailsync.link_base())

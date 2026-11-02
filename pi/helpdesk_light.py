@@ -68,8 +68,11 @@ class Hub:
         self.url, self.key = url.rstrip("/"), key
 
     def _call(self, path, method="GET"):
+        headers = {"X-Helpdesk-Client": "light"}  # tells the board a real light is connected
+        if self.key:
+            headers["X-Helpdesk-Key"] = self.key
         req = urllib.request.Request(self.url + path, method=method, data=b"" if method == "POST" else None,
-                                     headers={"X-Helpdesk-Key": self.key} if self.key else {})
+                                     headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.load(resp)
 

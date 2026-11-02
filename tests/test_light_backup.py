@@ -335,3 +335,57 @@ def test_offsite_copy_problems_are_reported(app, client, monkeypatch):
     page = text(client.post("/settings", data={"backup_dir": "", "backup_rclone": "just-a-bucket"},
                             follow_redirects=True))
     assert "should look like" in page
+
+
+# ------------------------------------------------------------------ the board's siren
+
+
+@pytest.fixture
+def no_light(monkeypatch):
+    import alerts
+    monkeypatch.setitem(alerts._light_seen, "at", 0.0)
+
+
+def test_siren_shows_when_no_light_is_connected(app, client, no_light):
+    client.post("/helpdesk/new", data={"subject": "Lab down", "priority": "Urgent"}, follow_redirects=True)
+    assert '<body class="board-page siren">' in text(client.get("/helpdesk/board"))
+    assert 'data-siren="1"' in text(client.get("/helpdesk/board/live"))
+    assert "No light is connected right now, so the board shows the siren" in text(client.get("/helpdesk/light"))
+    # The Pi's light script checks in: the real light takes over.
+    status = client.get("/helpdesk/light/status", headers={"X-Helpdesk-Client": "light"}).get_json()
+    assert status["light_connected"] is True
+    assert 'data-siren=""' in text(client.get("/helpdesk/board/live"))
+    assert "A light is connected" in text(client.get("/helpdesk/light"))
+
+
+def test_siren_modes_and_only_while_the_light_is_on(app, client, no_light):
+    assert 'data-siren=""' in text(client.get("/helpdesk/board/live"))  # nothing to alert about
+    client.post("/helpdesk/new", data={"subject": "Lab down", "priority": "Urgent"}, follow_redirects=True)
+    client.post("/helpdesk/light", data={"light_new": "1", "light_urgent": "1", "board_siren": "never"})
+    assert 'data-siren=""' in text(client.get("/helpdesk/board/live"))
+    client.post("/helpdesk/light", data={"light_new": "1", "light_urgent": "1", "board_siren": "always"})
+    client.get("/helpdesk/light/status", headers={"X-Helpdesk-Client": "light"})
+    assert 'data-siren="1"' in text(client.get("/helpdesk/board/live"))
+    client.post("/helpdesk/light/ack")
+    assert 'data-siren=""' in text(client.get("/helpdesk/board/live"))
+    assert app_settings.load(app.config["SETTINGS_PATH"])["board_siren"] == "always"
+
+
+def test_pi_script_identifies_itself(monkeypatch):
+    pl = load_pi_script()
+    seen = {}
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        seen.update(req.headers)
+        return Resp(b'{"light": false}')
+
+    monkeypatch.setattr(pl.urllib.request, "urlopen", fake_urlopen)
+    pl.Hub("http://vm:5000", "secret").status()
+    assert seen["X-helpdesk-client"] == "light" and seen["X-helpdesk-key"] == "secret"

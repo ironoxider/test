@@ -38,6 +38,8 @@ is no database server to set up.
 - **Raspberry Pi server, board and office light**: see `pi/PI_SETUP.md` to run Device Inventory on a Raspberry Pi
   at power-on, show the live board on a monitor, and switch a light through a relay when new or urgent tickets
   arrive (`pi/helpdesk_light.py`), with a button to silence it. Choose what lights it under Help Desk → Office light.
+  Device Inventory can also run on a server or virtual machine with the Pi only showing the board and driving the
+  light (Setup B in the guide). When no light is connected, the board shows a siren animation instead.
 - **Help Desk** (replacing Spiceworks, stage 1): a ticket queue for IT staff, under **Help Desk** in the menu.
   - Each ticket has a requester, subject and description, status (New, Open, Waiting, Closed), priority,
     category, the IT staff member it's assigned to, a location, and any number of linked devices.

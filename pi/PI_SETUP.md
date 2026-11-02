@@ -7,6 +7,14 @@ This sets up a Raspberry Pi 4 (4 GB) in the IT office to:
 - show the **Help Desk board** full-screen on a monitor;
 - switch the **office light** through a relay when tickets need attention, with a **button** to silence it.
 
+There are two ways to set it up:
+
+- **A. The Pi does everything**: follow steps 1–6 below.
+- **B. Device Inventory runs on a server (e.g. a virtual machine on your main server, with its UPS and SSDs)
+  and the Pi only shows the board and drives the light**: set up the server with
+  [Setup B](#setup-b-server-on-a-virtual-machine-pi-for-the-board-and-light) at the end, then on the Pi do
+  step 1 (an SD card is fine for this) and the parts of steps 5 and 6 it points to.
+
 Where it says `pi`, use the user name you choose in step 1.
 
 ## What you need
@@ -197,3 +205,58 @@ sudo systemctl restart device-inventory helpdesk-light
   UPS is worth it.
 - There's no sign-in yet: anyone on the school network who knows the address can open Device Inventory
   while "Allow phones and other computers" is on. Google sign-in for IT staff is the next step.
+
+## Setup B: server on a virtual machine, Pi for the board and light
+
+### The server (virtual machine)
+
+A small Linux VM is plenty: Ubuntu Server 24.04 or Debian 12, 1–2 CPU cores, 2 GB of memory, 20 GB of disk.
+Give it a fixed address (DHCP reservation) and, if you can, a DNS name such as `helpdesk.thehudsonschool.org`.
+
+1. On the VM, follow **step 2** (install with `git clone` and `./start.sh`; `sudo apt install -y git python3-venv`,
+   no gpiozero needed) and **bring your existing data over** to `~/Documents/Device Inventory/`
+   (create the folder first: `mkdir -p ~/Documents/"Device Inventory"`).
+2. Follow **step 3** to start it at power-on (in the service file, change `pi` to the VM's user name).
+3. Follow **step 4** for backups (a folder on the VM or a network share mounted on it, plus Backblaze B2).
+4. If the VM has a firewall: `sudo ufw allow 5000/tcp`.
+5. If you gave it a DNS name, set **Help Desk → Email setup → Address for links in these emails** to
+   `http://helpdesk.thehudsonschool.org:5000` so team emails and the digest use it.
+
+**Settings on a server with no screen.** Settings, Email setup and Office light only open on the computer
+running Device Inventory. From your own computer, connect through SSH so the VM sees you as itself:
+
+```bash
+ssh -L 5000:127.0.0.1:5000 youruser@helpdesk.thehudsonschool.org
+```
+
+Leave that window open and browse to **http://127.0.0.1:5000** on your computer: Settings work as if you were
+at the VM. Do this once to tick **Allow phones and other computers** (so the IT team, the board and email links
+can reach it), and whenever you need Settings, Email setup or Office light. (Windows 10 and 11 have `ssh` built
+in: run it in PowerShell.) Connecting the help desk mailbox also works this way, or copy `gmail.json` from the
+computer where it's already connected.
+
+### The Pi (board and light only)
+
+1. **Step 1** to install Raspberry Pi OS (an SD card is fine: the Pi stores nothing important now).
+2. Get the Pi files: `sudo apt install -y git python3-gpiozero` and
+   `git clone -b claude/device-inventory-tracker-1kk247 https://github.com/ironoxider/test.git ~/device-inventory`
+   (you don't need to run `start.sh` on the Pi).
+3. **The board** (step 5), pointing at the server: use this autostart line instead:
+
+   ```bash
+   echo "BOARD_URL=http://helpdesk.thehudsonschool.org:5000/helpdesk/board /home/pi/device-inventory/pi/start-board.sh &" >> ~/.config/labwc/autostart
+   ```
+
+4. **The light** (step 6): wire and test it the same way. In `helpdesk-light.service`, add the server's address
+   and the key from **Help Desk → Office light** to the `ExecStart` line, and remove the
+   `After=device-inventory.service` line:
+
+   ```
+   ExecStart=/usr/bin/python3 /home/pi/device-inventory/pi/helpdesk_light.py --url http://helpdesk.thehudsonschool.org:5000 --key YOUR_KEY --relay-pin 17 --button-pin 27
+   ```
+
+   The key only lets the Pi read the light's status and press Silence. `journalctl -u helpdesk-light -f` shows
+   "Can't reach Device Inventory" if the address or network is wrong, and "answered 403" if the key is wrong.
+
+If the light isn't connected (or the Pi's light script stops), the board shows a **siren animation** whenever
+the light would be on; choose that under **Help Desk → Office light → Siren animation on the board**.
