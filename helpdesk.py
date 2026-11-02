@@ -615,7 +615,9 @@ def board_data(db):
                " (SELECT m.kind FROM ticket_messages m WHERE m.ticket_id = t.id AND m.kind IN"
                "  ('description', 'incoming') ORDER BY m.id DESC LIMIT 1) AS last_kind,"
                " (SELECT m.author FROM ticket_messages m WHERE m.ticket_id = t.id AND m.kind IN"
-               "  ('description', 'incoming') ORDER BY m.id DESC LIMIT 1) AS last_author"
+               "  ('description', 'incoming') ORDER BY m.id DESC LIMIT 1) AS last_author,"
+               " (SELECT m.created_at FROM ticket_messages m WHERE m.ticket_id = t.id AND m.kind IN"
+               "  ('description', 'incoming') ORDER BY m.id DESC LIMIT 1) AS last_at"
                " FROM tickets t LEFT JOIN locations l ON l.id = t.location_id")
     unread = db.execute(columns + " WHERE t.unread = 1 ORDER BY t.updated_at DESC LIMIT 12").fetchall()
     queue = db.execute(columns + f" WHERE t.status != 'Closed' AND t.unread = 0 ORDER BY {PRIORITY_RANK},"

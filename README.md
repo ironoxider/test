@@ -60,6 +60,10 @@ is no database server to set up.
     their ticket and reopen it. Attachments are listed with a link to the email in Gmail.
   - **Reply by email** on a ticket sends from the mailbox, threaded with the conversation, and can set the ticket
     to Waiting or Closed.
+  - If Device Inventory or its computer was off, mail waits in the inbox and is picked up about 15 seconds after
+    it starts again. Tickets and messages keep the time the email was **sent**, so ages in the queue, board and
+    digest stay right; a ticket picked up late says when the email was sent. (Don't archive mail in the help desk
+    mailbox: only the inbox is read.)
   - Auto-replies, bounces and outside senders are labelled "Help Desk/Skipped" in Gmail instead of becoming
     tickets; imported mail is labelled "Help Desk/Imported". Nothing is deleted.
   - **The IT team** (addresses set on the Email setup page) gets an email for each new ticket and each requester

@@ -16,7 +16,7 @@
         <div class="bt-top"><span class="bt-num">#{{ t.id }}</span>
           <span class="badge priority-{{ t.priority|lower }}">{{ t.priority }}</span>
           <span class="bt-what">{{ 'Reply from ' ~ (t.last_author or 'requester') if t.last_kind == 'incoming' else 'New ticket' }}</span>
-          <span class="bt-age">{{ t.updated_at|ago }}</span></div>
+          <span class="bt-age">{{ (t.last_at or t.updated_at)|ago }}</span></div>
         <div class="bt-subject">{{ t.subject }}</div>
         <div class="bt-meta">{{ t.requester_name or t.requester_email or '' }}{% if t.location %} · {{ t.location }}{% endif %}{% if t.devices %} · {{ t.devices }}{% endif %}{% if t.assigned_to %} · {{ t.assigned_to }}{% endif %}</div>
       </a>

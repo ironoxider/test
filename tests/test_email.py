@@ -20,9 +20,12 @@ MAILBOX = "helpdesk-test@thehudsonschool.org"
 
 def make_email(subject="Projector in W401 won't turn on", body="CB-494 also won't charge.\n",
                sender="Grace Hopper <ghopper@thehudsonschool.org>", msg_id="<a1@mail.gmail.com>",
-               in_reply_to=None, html=None, attachment=None, headers=None):
+               in_reply_to=None, html=None, attachment=None, headers=None, sent=None):
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"], msg["Message-ID"] = sender, MAILBOX, subject, msg_id
+    if sent is not None:
+        from email.utils import format_datetime
+        msg["Date"] = format_datetime(sent)
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
@@ -555,3 +558,44 @@ def test_notifications_off_and_no_team(app, client, team):
     check(client)
     assert sent_to_team(team) == []
     assert "Add the IT team" in text(client.post("/helpdesk/email/digest", follow_redirects=True))
+
+
+# ------------------------------------------------------------------ catching up after downtime
+
+
+def test_tickets_use_the_time_the_email_was_sent(app, client, team):
+    from datetime import datetime, timedelta, timezone
+    two_hours_ago = datetime.now(timezone.utc) - timedelta(hours=2, minutes=5)
+    team.deliver(make_email(sent=two_hours_ago))
+    team.deliver(make_email(subject="Re: Projector", body="Hello?", msg_id="<a2@x>",
+                            sent=two_hours_ago + timedelta(minutes=30)))
+    check(client)
+    stamp = two_hours_ago.strftime("%Y-%m-%d %H:%M:%S")
+    db = db_for(app)
+    assert db.execute("SELECT created_at FROM tickets").fetchone()[0] == stamp
+    assert db.execute("SELECT created_at FROM ticket_messages WHERE kind = 'description'").fetchone()[0] == stamp
+    reply_at = db.execute("SELECT created_at FROM ticket_messages WHERE kind = 'incoming'").fetchone()[0]
+    assert reply_at == (two_hours_ago + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+    page = text(client.get("/helpdesk/1"))
+    assert "The email was sent" in page and "picked up 2 h later" in page
+    assert "open 2 h" in text(client.get("/helpdesk/board/live"))
+
+
+def test_digest_age_uses_sent_time(app, client, team):
+    from datetime import datetime, timedelta, timezone
+    team.deliver(make_email(sent=datetime.now(timezone.utc) - timedelta(days=2, hours=1)))
+    check(client)
+    client.post("/helpdesk/email/digest")
+    digest = mailsync.parse_message(team.sent[-1][0])
+    assert "open 2 days" in digest["body"]
+
+
+def test_missing_or_future_dates_fall_back_to_now(app, client, gmail):
+    from datetime import datetime, timedelta, timezone
+    gmail.deliver(make_email(sent=datetime.now(timezone.utc) + timedelta(days=3)))
+    gmail.deliver(make_email(subject="No date", msg_id="<nd@x>"), thread="t2")
+    check(client)
+    for created, in db_for(app).execute("SELECT created_at FROM tickets"):
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(created).replace(tzinfo=timezone.utc)
+        assert timedelta(0) <= age < timedelta(minutes=1)
+    assert "The email was sent" not in text(client.get("/helpdesk/1"))

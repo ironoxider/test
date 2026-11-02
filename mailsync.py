@@ -18,7 +18,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from email.message import EmailMessage
-from email.utils import getaddresses, make_msgid, parseaddr
+from email.utils import getaddresses, make_msgid, parseaddr, parsedate_to_datetime
 
 from flask import current_app
 
@@ -156,6 +156,23 @@ def clean_body(text):
     return text[:MAX_BODY]
 
 
+def sent_time(msg):
+    """When the email says it was sent, as a stored UTC timestamp; None if it can't be read.
+
+    A time in the future (a sender's clock running fast) counts as now.
+    """
+    try:
+        when = parsedate_to_datetime(str(msg.get("Date", "")))
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when is None or when.year < 2000:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    when = min(when.astimezone(timezone.utc), datetime.now(timezone.utc))
+    return when.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def parse_message(raw):
     """The parts of an email the help desk uses."""
     msg = email.message_from_bytes(raw, policy=email.policy.default)
@@ -195,6 +212,7 @@ def parse_message(raw):
         "body": clean_body(strip_quoted(clean_body(body))),
         "attachments": attachments,
         "automatic": auto,
+        "sent_at": sent_time(msg),
     }
 
 
@@ -289,19 +307,19 @@ def process_mailbox(client, db, cfg, mailbox):
 
 
 def add_team_note(db, ticket, parsed, gmail_id):
-    db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id)"
-               " VALUES (?, 'note', ?, ?, ?, ?, ?)",
+    db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id,"
+               " created_at) VALUES (?, 'note', ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
                (ticket["id"], parsed["from_name"] or parsed["from_email"], parsed["from_email"],
-                body_with_attachments(parsed), parsed["message_id"], gmail_id))
+                body_with_attachments(parsed), parsed["message_id"], gmail_id, parsed["sent_at"]))
     db.execute("UPDATE tickets SET updated_at = datetime('now') WHERE id = ?", (ticket["id"],))
 
 
 def add_incoming(db, ticket, parsed, gmail_id):
     hd = _hd()
-    db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id)"
-               " VALUES (?, 'incoming', ?, ?, ?, ?, ?)",
+    db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id,"
+               " created_at) VALUES (?, 'incoming', ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
                (ticket["id"], parsed["from_name"] or parsed["from_email"], parsed["from_email"],
-                body_with_attachments(parsed), parsed["message_id"], gmail_id))
+                body_with_attachments(parsed), parsed["message_id"], gmail_id, parsed["sent_at"]))
     db.execute("UPDATE tickets SET updated_at = datetime('now'), unread = 1 WHERE id = ?", (ticket["id"],))
     if ticket["status"] in ("Closed", "Waiting"):
         db.execute("UPDATE tickets SET status = 'Open', closed_at = NULL WHERE id = ?", (ticket["id"],))
@@ -309,19 +327,28 @@ def add_incoming(db, ticket, parsed, gmail_id):
     hd.auto_link(db, ticket["id"], parsed["body"], "a reply")
 
 
+def pickup_delay(sent_at):
+    """A sentence saying when the email was sent, if it was picked up 10+ minutes later."""
+    when = core.parse_utc(sent_at)
+    if when is None or (datetime.now(timezone.utc) - when).total_seconds() < 600:
+        return ""
+    return (f" The email was sent {core.local_time(sent_at)} and picked up "
+            f"{core.time_ago(sent_at).replace(' ago', '')} later (Device Inventory wasn't checking mail).")
+
+
 def create_from_email(db, parsed, gmail_id, thread_id):
     hd = _hd()
     subject = TICKET_TAG_RE.sub("", parsed["subject"]).strip() or "(no subject)"
     cur = db.execute(
-        "INSERT INTO tickets (subject, requester_name, requester_email, status, source, gmail_thread_id, unread)"
-        " VALUES (?, ?, ?, 'New', 'email', ?, 1)",
-        (subject, parsed["from_name"], parsed["from_email"], thread_id))
+        "INSERT INTO tickets (subject, requester_name, requester_email, status, source, gmail_thread_id, unread,"
+        " created_at) VALUES (?, ?, ?, 'New', 'email', ?, 1, COALESCE(?, datetime('now')))",
+        (subject, parsed["from_name"], parsed["from_email"], thread_id, parsed["sent_at"]))
     ticket_id = cur.lastrowid
-    db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id)"
-               " VALUES (?, 'description', ?, ?, ?, ?, ?)",
+    db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id,"
+               " created_at) VALUES (?, 'description', ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
                (ticket_id, parsed["from_name"] or parsed["from_email"], parsed["from_email"],
-                body_with_attachments(parsed), parsed["message_id"], gmail_id))
-    hd.add_message(db, ticket_id, "event", "Ticket created from an email.")
+                body_with_attachments(parsed), parsed["message_id"], gmail_id, parsed["sent_at"]))
+    hd.add_message(db, ticket_id, "event", "Ticket created from an email." + pickup_delay(parsed["sent_at"]))
     # Link the devices (asset tags or serial numbers) and room the email mentions.
     hd.auto_link(db, ticket_id, f"{subject}\n{parsed['body']}", "the email")
     return ticket_id
