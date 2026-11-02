@@ -22,6 +22,7 @@ from email.utils import getaddresses, make_msgid, parseaddr, parsedate_to_dateti
 
 from flask import current_app
 
+import alerts
 import app as core
 import app_settings
 import gmail_api
@@ -198,6 +199,12 @@ def parse_message(raw):
             html_body = content
     body = plain if plain is not None else html_to_text(html_body or "")
     refs = " ".join(str(msg.get(h, "")) for h in ("In-Reply-To", "References"))
+    subject = " ".join(str(msg.get("Subject", "")).split()) or "(no subject)"
+    # Marked important in the mail app, or "urgent"/"ASAP"/"emergency" in the subject.
+    important = str(msg.get("X-Priority", "")).strip()[:1] in ("1", "2") \
+        or str(msg.get("Importance", "")).lower() == "high" \
+        or str(msg.get("Priority", "")).lower() == "urgent" \
+        or bool(re.search(r"\b(urgent|asap|emergency)\b", subject, re.I))
     auto = str(msg.get("Auto-Submitted", "no")).lower() not in ("", "no") \
         or str(msg.get("Precedence", "")).lower() in ("bulk", "junk", "auto_reply", "list") \
         or bool(msg.get("X-Autoreply") or msg.get("X-Autorespond")) \
@@ -206,7 +213,8 @@ def parse_message(raw):
         "from_name": name.strip() or None,
         "from_email": address.strip().lower() or None,
         "to": [a.lower() for _, a in getaddresses([str(msg.get("To", "")), str(msg.get("Cc", ""))]) if a],
-        "subject": " ".join(str(msg.get("Subject", "")).split()) or "(no subject)",
+        "subject": subject,
+        "important": important,
         "message_id": str(msg.get("Message-ID", "")).strip() or None,
         "references": re.findall(r"<[^<>\s]+>", refs),
         "body": clean_body(strip_quoted(clean_body(body))),
@@ -325,6 +333,7 @@ def add_incoming(db, ticket, parsed, gmail_id):
         db.execute("UPDATE tickets SET status = 'Open', closed_at = NULL WHERE id = ?", (ticket["id"],))
         hd.add_message(db, ticket["id"], "event", f"Status: {ticket['status']} → Open (the requester replied)")
     hd.auto_link(db, ticket["id"], parsed["body"], "a reply")
+    alerts.raise_alert(db, ticket["id"], "reply")
 
 
 def pickup_delay(sent_at):
@@ -340,9 +349,10 @@ def create_from_email(db, parsed, gmail_id, thread_id):
     hd = _hd()
     subject = TICKET_TAG_RE.sub("", parsed["subject"]).strip() or "(no subject)"
     cur = db.execute(
-        "INSERT INTO tickets (subject, requester_name, requester_email, status, source, gmail_thread_id, unread,"
-        " created_at) VALUES (?, ?, ?, 'New', 'email', ?, 1, COALESCE(?, datetime('now')))",
-        (subject, parsed["from_name"], parsed["from_email"], thread_id, parsed["sent_at"]))
+        "INSERT INTO tickets (subject, requester_name, requester_email, status, priority, source, gmail_thread_id,"
+        " unread, created_at) VALUES (?, ?, ?, 'New', ?, 'email', ?, 1, COALESCE(?, datetime('now')))",
+        (subject, parsed["from_name"], parsed["from_email"], "High" if parsed.get("important") else "Normal",
+         thread_id, parsed["sent_at"]))
     ticket_id = cur.lastrowid
     db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id,"
                " created_at) VALUES (?, 'description', ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
@@ -351,6 +361,9 @@ def create_from_email(db, parsed, gmail_id, thread_id):
     hd.add_message(db, ticket_id, "event", "Ticket created from an email." + pickup_delay(parsed["sent_at"]))
     # Link the devices (asset tags or serial numbers) and room the email mentions.
     hd.auto_link(db, ticket_id, f"{subject}\n{parsed['body']}", "the email")
+    if parsed.get("important"):
+        hd.add_message(db, ticket_id, "event", "Priority: High (the email was marked urgent or important)")
+    alerts.raise_alert(db, ticket_id, "new", *(["urgent"] if parsed.get("important") else []))
     return ticket_id
 
 
@@ -537,6 +550,17 @@ def digest_due(cfg, now=None):
     return (now.hour, now.minute) >= (hour, minute)
 
 
+def send_attachment(to, subject, text, filename, data, client=None):
+    """Email a file (e.g. the daily backup) from the help desk mailbox."""
+    cfg = config()
+    if not connected() or not cfg["mailbox"]:
+        raise gmail_api.GmailError("the help desk mailbox isn't connected (Help Desk → Email setup)")
+    msg = build_team_email(cfg, cfg["mailbox"], [to], subject, text)
+    maintype, subtype = ("application", "zip") if filename.endswith(".zip") else ("application", "octet-stream")
+    msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
+    (client or get_client()).send(msg.as_bytes())
+
+
 # ---------------------------------------------------------------- checking
 
 
@@ -560,7 +584,8 @@ def check_now():
 
 
 def start_background(app):
-    """Check the mailbox every few minutes while the app runs (started by the launcher)."""
+    """Background jobs while the app runs (started by the launcher): checking the mailbox every
+    few minutes, the daily digest, and the automatic daily backup."""
     def loop():
         last = 0.0
         while True:
@@ -581,4 +606,10 @@ def start_background(app):
                                                 mail_last_error=f"Daily digest wasn't sent: {error}")
             except Exception as e:  # keep checking even if one round fails unexpectedly
                 print(f"Help desk email check failed: {e}", flush=True)
+            try:
+                with app.app_context():
+                    import autobackup
+                    autobackup.tick()
+            except Exception as e:
+                print(f"Automatic backup failed: {e}", flush=True)
     threading.Thread(target=loop, name="helpdesk-mail", daemon=True).start()

@@ -32,6 +32,12 @@ is no database server to set up.
 - **Backups**: in **Settings → Your data & backups**, **Back up now** saves a dated .zip (inventory, settings without
   the API key, and restore steps) to a folder you choose, such as a Google Drive folder. **Download a backup**
   saves the same file through the browser.
+- **Automatic daily backups** (Settings → Your data & backups): once a day at a set time, a dated .zip goes to the
+  backup folder (the last 30 are kept), and optionally by email and to an offsite copy with rclone, such as a
+  Backblaze B2 bucket (old offsite copies deleted after 90 days). Problems show on the Devices page.
+- **Raspberry Pi server, board and office light**: see `pi/PI_SETUP.md` to run Device Inventory on a Raspberry Pi
+  at power-on, show the live board on a monitor, and switch a light through a relay when new or urgent tickets
+  arrive (`pi/helpdesk_light.py`), with a button to silence it. Choose what lights it under Help Desk → Office light.
 - **Help Desk** (replacing Spiceworks, stage 1): a ticket queue for IT staff, under **Help Desk** in the menu.
   - Each ticket has a requester, subject and description, status (New, Open, Waiting, Closed), priority,
     category, the IT staff member it's assigned to, a location, and any number of linked devices.

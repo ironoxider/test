@@ -126,8 +126,28 @@
     <label class="wide">Backup folder
       <input name="backup_dir" value="{{ backup_dir }}" placeholder="e.g. C:\Users\you\Google Drive\My Drive\Inventory backups" spellcheck="false">
     </label>
+    <label class="checkbox"><input type="checkbox" name="backup_auto" value="1" {% if auto.backup_auto %}checked{% endif %}>
+      Back up automatically every day at</label>
+    <label>Time<input type="time" name="backup_time" value="{{ auto.backup_time }}"></label>
+    <label>Keep this many automatic backups in the folder
+      <input type="number" name="backup_keep" min="1" max="365" value="{{ auto.backup_keep }}"></label>
+    <label>Also email each automatic backup to
+      <input type="email" name="backup_email" value="{{ auto.backup_email }}" placeholder="optional, e.g. you@thehudsonschool.org"></label>
+    <label>Offsite copy with rclone (e.g. Backblaze B2)
+      <input name="backup_rclone" value="{{ auto.backup_rclone }}" placeholder="b2:your-bucket/device-inventory" spellcheck="false"></label>
+    <label>Delete offsite copies older than (days, 0 = keep all)
+      <input type="number" name="backup_offsite_days" min="0" max="3650" value="{{ auto.backup_offsite_days }}"></label>
+    <p class="wide muted small-note">Automatic backups run once a day while Device Inventory is running (or as soon as it
+      starts, if it was off at that time). Emailing them uses the help desk mailbox (Help Desk → Email setup) and gives you
+      an offsite copy in Gmail. Older automatic backups beyond the number above are deleted from the folder; backups you
+      make with the button are never deleted. The offsite copy uploads each automatic backup with
+      <a href="https://rclone.org" target="_blank" rel="noopener">rclone</a>, set up once on this computer (see
+      "Offsite backups to Backblaze B2" in pi/PI_SETUP.md).
+      {% if auto.auto_backup_result %}<br>Last automatic backup: {{ auto.auto_backup_result }}.{% endif %}</p>
+    {% if auto.auto_backup_error %}<p class="wide flash error">The last automatic backup had a problem: {{ auto.auto_backup_error }}</p>{% endif %}
     <div class="wide actions">
       <button type="submit" formaction="{{ url_for('backup_now') }}" class="secondary">Back up now</button>
+      {% if auto.backup_auto %}<button type="submit" formaction="{{ url_for('backup_auto_now') }}" class="secondary">Run the automatic backup now</button>{% endif %}
       <a class="button secondary" href="{{ url_for('backup_download') }}">Download a backup</a>
     </div>
     <p class="wide muted">{% if last_backup %}Last backup: {{ last_backup }} to <code class="mono">{{ last_backup_path }}</code>.

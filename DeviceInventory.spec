@@ -5,7 +5,7 @@ from PyInstaller.utils.hooks import collect_submodules
 a = Analysis(
     ["launcher.py"],
     datas=[("templates", "templates"), ("static", "static"), ("schema.sql", ".")],
-    hiddenimports=collect_submodules("waitress") + ["helpdesk", "mailsync", "gmail_api"],
+    hiddenimports=collect_submodules("waitress") + ["helpdesk", "mailsync", "gmail_api", "alerts", "autobackup"],
     excludes=["tkinter", "pytest"],
 )
 pyz = PYZ(a.pure)

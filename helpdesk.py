@@ -9,6 +9,7 @@ import secrets
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 
+import alerts
 import app as core
 import app_settings
 import gmail_api
@@ -316,6 +317,8 @@ def new():
             add_message(db, ticket_id, "event", "Ticket created.")
             link_devices(db, get_ticket(db, ticket_id), devices)
             auto_link(db, ticket_id, f"{ticket['subject']}\n{ticket['description'] or ''}")
+            if ticket["priority"] in ("High", "Urgent"):
+                alerts.raise_alert(db, ticket_id, "raised")
             db.commit()
             flash(f"Created ticket #{ticket_id}.", "success")
             return redirect(url_for("helpdesk.view", ticket_id=ticket_id))
@@ -342,8 +345,9 @@ def new():
 def view(ticket_id, reply_draft=None):
     db = core.get_db()
     ticket = get_ticket(db, ticket_id)
-    if ticket["unread"] and request.method == "GET":
+    if request.method == "GET" and (ticket["unread"] or ticket["alerted_at"]):
         db.execute("UPDATE tickets SET unread = 0 WHERE id = ?", (ticket_id,))  # someone has seen it
+        alerts.seen(db, ticket_id)
         db.commit()
     devices = linked_devices(db, ticket_id)
     messages = db.execute("SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY id",
@@ -391,6 +395,8 @@ def update(ticket_id):
         db.execute(f"UPDATE tickets SET {', '.join(sets)} WHERE id = ?", values + [ticket_id])
         if "subject" in changed:
             auto_link(db, ticket_id, changed["subject"], "the subject")
+        if changed.get("priority") in ("High", "Urgent") and ticket["status"] != "Closed":
+            alerts.raise_alert(db, ticket_id, "raised")
         for field, new_value in changed.items():
             old_value = ticket[field]
             if field == "location_id":
@@ -622,7 +628,7 @@ def board_data(db):
     unread = db.execute(columns + " WHERE t.unread = 1 ORDER BY t.updated_at DESC LIMIT 12").fetchall()
     queue = db.execute(columns + f" WHERE t.status != 'Closed' AND t.unread = 0 ORDER BY {PRIORITY_RANK},"
                        " t.created_at LIMIT 15").fetchall()
-    return {"counts": counts, "unread": unread, "queue": queue, "mail": mail_state()}
+    return {"counts": counts, "unread": unread, "queue": queue, "mail": mail_state(), "light": alerts.state(db)}
 
 
 @bp.route("/board")
@@ -704,3 +710,43 @@ def finish_google_sign_in():
     if request.path == "/" and "state" in request.args and ("code" in request.args or "error" in request.args):
         return redirect(url_for("helpdesk.email_oauth", **request.args))
     return None
+
+
+# ---------------------------------------------------------------- the office light (Raspberry Pi)
+
+
+@bp.route("/light/status")
+def light_status():
+    """What the alert light should do, for pi/helpdesk_light.py (JSON)."""
+    from flask import jsonify
+    return jsonify(alerts.state(core.get_db()))
+
+
+@bp.route("/light/ack", methods=["POST"])
+def light_ack():
+    """Silence the light (the button on the Pi, or Silence on the board)."""
+    from flask import jsonify
+    alerts.acknowledge()
+    if request.form.get("next"):
+        return redirect(request.form["next"])
+    return jsonify(alerts.state(core.get_db()))
+
+
+@bp.route("/light", methods=["GET", "POST"])
+def light_setup():
+    if request.method == "POST":
+        f = request.form
+        if f.get("action") == "test":
+            alerts.test()
+            flash("The light should come on within a few seconds, for 15 seconds.", "success")
+        elif f.get("action") == "new_key":
+            alerts.new_key()
+            flash("Made a new key. Update it on the Raspberry Pi if it runs on another computer.", "success")
+        else:
+            app_settings.update(current_app.config["SETTINGS_PATH"], **{
+                name: bool(f.get(name)) for name in alerts.DEFAULTS})
+            flash("Light settings saved.", "success")
+        return redirect(url_for("helpdesk.light_setup"))
+    status_url = url_for("helpdesk.light_status", _external=True)
+    return render_template("helpdesk_light.html", cfg=alerts.config(), state=alerts.state(core.get_db()),
+                           key=alerts.key(), status_url=status_url, link_base=mailsync.link_base())

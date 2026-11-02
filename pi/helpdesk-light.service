@@ -1,0 +1,14 @@
+# Runs the office light script at power-on. Install with the steps in PI_SETUP.md.
+# Change the options on the ExecStart line to match your wiring (see helpdesk_light.py --help).
+[Unit]
+Description=Help Desk office light
+After=device-inventory.service
+
+[Service]
+User=pi
+ExecStart=/usr/bin/python3 /home/pi/device-inventory/pi/helpdesk_light.py --relay-pin 17 --button-pin 27
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

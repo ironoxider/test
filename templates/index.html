@@ -17,6 +17,9 @@
 </div>
 {% endif %}
 
+{% if backup_problem %}
+<div class="flash error">Automatic backup problem: {{ backup_problem }} <a href="{{ url_for('settings') }}#backups">Backup settings</a></div>
+{% endif %}
 <section class="stats">
   <a class="stat" href="{{ url_for('index') }}"><strong>{{ stats.total or 0 }}</strong><span>Total devices</span></a>
   {% for status, count in status_counts %}

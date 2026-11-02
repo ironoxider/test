@@ -1,5 +1,13 @@
 {# The part of the board that refreshes. data-unread lists unread ticket ids so the page can spot new ones. #}
 <div id="live" data-unread="{{ unread|map(attribute='id')|join(',') }}">
+  {% if light.light %}
+  <div class="board-alert">
+    <span><strong>Light on:</strong> {{ light.reason_text }}{% if light.ticket %} · #{{ light.ticket.id }} {{ light.ticket.subject }}{% endif %}{% if light.alerts > 1 %} (+{{ light.alerts - 1 }} more){% endif %}</span>
+    <form method="post" action="{{ url_for('helpdesk.light_ack') }}">
+      <input type="hidden" name="next" value="{{ url_for('helpdesk.board') }}">
+      <button type="submit">Silence</button></form>
+  </div>
+  {% endif %}
   <section class="board-counts">
     <div class="board-count {{ 'hot' if counts.unread }}"><strong>{{ counts.unread or 0 }}</strong><span>Unread</span></div>
     <div class="board-count {{ 'warm' if counts.new }}"><strong>{{ counts.new or 0 }}</strong><span>New</span></div>

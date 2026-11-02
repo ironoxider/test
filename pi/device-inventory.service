@@ -1,0 +1,17 @@
+# Runs Device Inventory at power-on, with no window. Install with the steps in PI_SETUP.md.
+[Unit]
+Description=Device Inventory and Help Desk
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/device-inventory
+Environment=INVENTORY_NO_BROWSER=1
+Environment=INVENTORY_PORT=5000
+ExecStart=/home/pi/device-inventory/.venv/bin/python /home/pi/device-inventory/launcher.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

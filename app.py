@@ -191,7 +191,8 @@ def init_db():
         upgrade_devices_table(db, schema)
     upgrade_options_table(db)
     old_tickets = rename_v1_tickets(db)
-    add_missing_columns(db, {"tickets": ["gmail_thread_id", "unread INTEGER NOT NULL DEFAULT 0"],
+    add_missing_columns(db, {"tickets": ["gmail_thread_id", "unread INTEGER NOT NULL DEFAULT 0",
+                                         "alerted_at", "alert_reason"],
                              "ticket_messages": ["author_email", "message_id", "gmail_id"]})
     db.executescript(schema)
     if old_tickets:
@@ -410,8 +411,16 @@ def is_this_computer(addr):
 
 
 # Pages that can only be opened on the computer running the app.
-LOCAL_ONLY = {"settings", "backup_download", "backup_now", "helpdesk.email_setup",
+LOCAL_ONLY = {"settings", "backup_download", "backup_now", "backup_auto_now", "helpdesk.email_setup", "helpdesk.light_setup",
               "helpdesk.email_connect", "helpdesk.email_oauth", "helpdesk.email_disconnect"}
+
+
+def light_key_ok():
+    import secrets as _secrets
+    from flask import current_app
+    sent = request.headers.get("X-Helpdesk-Key") or request.args.get("key") or ""
+    saved = app_settings.load(current_app.config["SETTINGS_PATH"]).get("light_key") or ""
+    return bool(saved and sent) and _secrets.compare_digest(sent, saved)
 
 
 def check_remote_access():
@@ -420,6 +429,8 @@ def check_remote_access():
 
     if is_this_computer(request.remote_addr):
         return None
+    if request.endpoint in ("helpdesk.light_status", "helpdesk.light_ack") and light_key_ok():
+        return None  # the alert light's Pi on another computer
     allowed = app_settings.load(current_app.config["SETTINGS_PATH"]).get("allow_network", False)
     if not allowed:
         return render_template("remote_blocked.html", reason="off"), 403
@@ -678,6 +689,11 @@ def backup_bytes(db_path, settings_file):
         return buf.getvalue()
 
 
+def autobackup_config():
+    import autobackup
+    return autobackup.config()
+
+
 def backup_filename():
     return f"Device Inventory backup {datetime.now():%Y-%m-%d %H%M}.zip"
 
@@ -751,6 +767,7 @@ def register_routes(app):
             "index.html", devices=devices, locations=locations, stats=stats,
             status_counts=status_counts, args=request.args, reminder_days=reminder_days(),
             open_ticket_devices=open_ticket_devices, low_stock=low_stock,
+            backup_problem=app_setting("auto_backup_error", None) if app_setting("backup_auto", False) else None,
             soon_date=(date.today() + timedelta(days=reminder_days())).isoformat(),
         )
 
@@ -974,6 +991,36 @@ def register_routes(app):
                               "address of an existing folder.", "error")
                         return redirect(url_for("settings") + "#backups")
                 changes["backup_dir"] = folder
+                changes["backup_auto"] = bool(request.form.get("backup_auto"))
+                backup_time = (request.form.get("backup_time") or "02:00").strip()
+                if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", backup_time):
+                    flash("The backup time must look like 02:00.", "error")
+                    return redirect(url_for("settings") + "#backups")
+                changes["backup_time"] = backup_time
+                try:
+                    changes["backup_keep"] = min(365, max(1, int(request.form.get("backup_keep") or 30)))
+                except ValueError:
+                    pass
+                backup_email = clean(request.form.get("backup_email")) or ""
+                if backup_email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", backup_email):
+                    flash("The backup email address doesn't look right.", "error")
+                    return redirect(url_for("settings") + "#backups")
+                changes["backup_email"] = backup_email
+                import autobackup
+                remote = (request.form.get("backup_rclone") or "").strip()
+                if remote and not autobackup.RCLONE_RE.match(remote):
+                    flash('The offsite copy should look like "b2:bucket-name/folder" (an rclone remote, '
+                          'a colon, then the bucket and folder).', "error")
+                    return redirect(url_for("settings") + "#backups")
+                changes["backup_rclone"] = remote
+                try:
+                    changes["backup_offsite_days"] = min(3650, max(0, int(request.form.get("backup_offsite_days") or 90)))
+                except ValueError:
+                    pass
+                if changes["backup_auto"] and not folder and not backup_email and not remote:
+                    flash("For automatic backups, enter a backup folder, an email address or an offsite copy.",
+                          "error")
+                    return redirect(url_for("settings") + "#backups")
             new_key = clean(request.form.get("anthropic_api_key"))
             if request.form.get("remove_key"):
                 changes["anthropic_api_key"] = None
@@ -1007,6 +1054,7 @@ def register_routes(app):
             backup_dir=data.get("backup_dir") or "",
             last_backup=data.get("last_backup"),
             last_backup_path=data.get("last_backup_path"),
+            auto=autobackup_config(),
             data_move=app.config.get("DATA_MOVE"),
             ticket_url=data.get("ticket_url") or "",
             db_path=os.path.abspath(app.config["DATABASE"]),
@@ -1038,6 +1086,17 @@ def register_routes(app):
         app_settings.update(app.config["SETTINGS_PATH"], backup_dir=folder, last_backup_path=path,
                             last_backup=datetime.now().strftime("%Y-%m-%d %H:%M"))
         flash(f"Backed up to {path}", "success")
+        return redirect(url_for("settings") + "#backups")
+
+    @app.route("/backup/auto-now", methods=["POST"])
+    def backup_auto_now():
+        """Run today's automatic backup now, to check the folder, email and offsite copy work."""
+        import autobackup
+        result, error = autobackup.run()
+        if error:
+            flash(f"Automatic backup: {result or ''} Problem: {error}", "error")
+        else:
+            flash(f"Automatic backup done: {result}.", "success")
         return redirect(url_for("settings") + "#backups")
 
     @app.route("/lists")

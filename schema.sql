@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     spiceworks_number TEXT,
     gmail_thread_id   TEXT,                            -- the ticket's email thread
     unread            INTEGER NOT NULL DEFAULT 0,      -- 1 = new email or reply nobody has opened yet
+    alerted_at        TEXT,                            -- when it last asked for the office light
+    alert_reason      TEXT,                            -- new, reply or urgent
     created_at        TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
     closed_at         TEXT

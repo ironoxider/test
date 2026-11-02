@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Office light · Help Desk{% endblock %}
+{% block content %}
+<p class="muted small-note"><a href="{{ url_for('helpdesk.queue') }}">← Help Desk</a></p>
+<h1>Office light &amp; button</h1>
+<p>A Raspberry Pi in the IT office can switch a light (through a relay) when tickets need attention, and a button
+  silences it. The Pi runs <code>pi/helpdesk_light.py</code> from the Device Inventory folder; see
+  <code>pi/PI_SETUP.md</code> for wiring and setup.</p>
+
+<div class="email-status">
+  <p><strong>The light is {{ 'ON' if state.light else 'off' }}</strong>{% if state.light %}:
+    {{ state.reason_text }}{% if state.ticket %}, #{{ state.ticket.id }} {{ state.ticket.subject }}{% endif %}
+    {% if state.alerts > 1 %}(and {{ state.alerts - 1 }} more){% endif %}{% endif %}.</p>
+  <div class="actions">
+    <form method="post" action="{{ url_for('helpdesk.light_ack') }}">
+      <input type="hidden" name="next" value="{{ url_for('helpdesk.light_setup') }}">
+      <button type="submit" class="secondary">Silence</button></form>
+    <form method="post"><button type="submit" name="action" value="test" class="secondary">Test the light (15 seconds)</button></form>
+  </div>
+</div>
+
+<form method="post" class="device-form">
+  <fieldset>
+    <legend>Turn the light on for</legend>
+    <label class="checkbox wide"><input type="checkbox" name="light_new" value="1" {% if cfg.light_new %}checked{% endif %}>
+      Every new ticket that comes in by email</label>
+    <label class="checkbox wide"><input type="checkbox" name="light_urgent" value="1" {% if cfg.light_urgent %}checked{% endif %}>
+      High or urgent tickets: emails marked important or with "urgent", "ASAP" or "emergency" in the subject, and
+      tickets someone sets to High or Urgent</label>
+    <label class="checkbox wide"><input type="checkbox" name="light_replies" value="1" {% if cfg.light_replies %}checked{% endif %}>
+      Replies from requesters on open tickets</label>
+    <label class="checkbox wide"><input type="checkbox" name="light_clear_on_open" value="1" {% if cfg.light_clear_on_open %}checked{% endif %}>
+      Turn it off once someone opens the ticket in Device Inventory (otherwise only the button turns it off)</label>
+    <div class="actions wide"><button type="submit">Save</button></div>
+  </fieldset>
+</form>
+
+<h2>Connecting the Raspberry Pi</h2>
+<ul class="steps">
+  <li><strong>If the Pi is also the Device Inventory server</strong> (recommended), the script needs no settings:
+    it uses <code>http://127.0.0.1:{{ request.host.split(':')[1] if ':' in request.host else '5000' }}</code>.</li>
+  <li><strong>If Device Inventory runs on another computer</strong>, start the script with
+    <code>--url {{ link_base }}</code> and <code>--key</code> with this key (it lets the Pi read the light's status and
+    press Silence, nothing else):
+    <p><code class="mono key">{{ key }}</code></p>
+    <form method="post" onsubmit="return confirm('Make a new key? The old one stops working.');">
+      <button type="submit" name="action" value="new_key" class="link danger small-note">Make a new key</button></form></li>
+  <li>The status the Pi reads: <code>{{ status_url }}</code></li>
+</ul>
+{% endblock %}
