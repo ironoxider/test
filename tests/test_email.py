@@ -403,3 +403,155 @@ def test_read_client_file_and_pkce():
         gmail_api.read_client_file('{"installed": {}}')
     verifier, challenge = gmail_api.pkce_pair()
     assert challenge == base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+
+
+# ------------------------------------------------------------------ the IT team, unread, board, digest
+
+TEAM = "rafael@thehudsonschool.org, it2@thehudsonschool.org"
+
+
+@pytest.fixture
+def team(app, gmail):
+    app_settings.update(app.config["SETTINGS_PATH"], mail_team=TEAM, mail_link_base="http://10.0.0.5:5000")
+    return gmail
+
+
+def sent_to_team(gmail):
+    return [mailsync.parse_message(raw) for raw, _ in gmail.sent
+            if "rafael@thehudsonschool.org" in mailsync.parse_message(raw)["to"]]
+
+
+def test_team_hears_about_new_tickets_and_replies(app, client, team):
+    add_device(client)
+    team.deliver(make_email())
+    check(client)
+    notices = sent_to_team(team)
+    assert len(notices) == 1
+    n = notices[0]
+    assert n["subject"] == "[Help Desk] New ticket #1: Projector in W401 won't turn on"
+    assert set(n["to"]) == {"rafael@thehudsonschool.org", "it2@thehudsonschool.org"}
+    for expected in ("New ticket from Grace Hopper", "CB-494 also won't charge.", "Location: Room W401",
+                     "Devices: CB-494", "http://10.0.0.5:5000/helpdesk/1", "add an internal note"):
+        assert expected in n["body"], expected
+    assert "Emailed the IT team" in text(client.get("/helpdesk/1"))
+    # The requester's acknowledgement doesn't reference the team email.
+    ack = next(mailsync.parse_message(raw) for raw, _ in team.sent
+               if "ghopper@thehudsonschool.org" in mailsync.parse_message(raw)["to"])
+    assert n["message_id"] not in ack["references"]
+    team.deliver(make_email(subject="Re: Projector", body="Still dark.", msg_id="<a2@x>"))
+    check(client)
+    notices = sent_to_team(team)
+    assert len(notices) == 2 and notices[1]["subject"].startswith("[Help Desk] Reply on ticket #1:")
+    assert "Grace Hopper replied" in notices[1]["body"] and "Still dark." in notices[1]["body"]
+
+
+def test_team_reply_to_a_notification_becomes_an_internal_note(app, client, team):
+    team.deliver(make_email())
+    check(client)
+    client.post("/helpdesk/1/update", data={"status": "Waiting"})
+    notice_id = sent_to_team(team)[0]["message_id"]
+    team.deliver(make_email(subject="Re: [Help Desk] New ticket #1: Projector", body="I'll take this one.",
+                            sender="Rafael <rafael@thehudsonschool.org>", msg_id="<n1@x>",
+                            in_reply_to=notice_id), thread="t-notice")
+    sent_before = len(team.sent)
+    check(client)
+    page = text(client.get("/helpdesk/1"))
+    assert "I&#39;ll take this one." in page and "internal note by email" in page
+    db = db_for(app)
+    assert db.execute("SELECT COUNT(*) FROM tickets").fetchone()[0] == 1          # not a new ticket
+    assert db.execute("SELECT status FROM tickets").fetchone()[0] == "Waiting"    # not reopened
+    assert len(team.sent) == sent_before                                          # nobody emailed
+
+
+def test_unread_until_opened(app, client, gmail):
+    gmail.deliver(make_email())
+    check(client)
+    client.post("/helpdesk/new", data={"subject": "Typed in by IT"})
+    queue = text(client.get("/helpdesk/?view=unread"))
+    assert "Projector in W401" in queue and "Typed in by IT" not in queue
+    assert 'nav-count unread' in queue and 'class="unread-dot"' in queue
+    client.get("/helpdesk/1")  # opening it marks it read
+    assert "Projector in W401" not in text(client.get("/helpdesk/?view=unread"))
+    gmail.deliver(make_email(subject="Re: Projector", body="Any update?", msg_id="<a2@x>"))
+    check(client)
+    assert "Projector in W401" in text(client.get("/helpdesk/?view=unread"))
+
+
+def test_board_shows_unread_and_queue(app, client, gmail):
+    gmail.deliver(make_email())
+    gmail.deliver(make_email(subject="Printer jam", msg_id="<p@x>"), thread="t2")
+    check(client)
+    client.get("/helpdesk/2")  # read
+    page = text(client.get("/helpdesk/board"))
+    assert "Help Desk board" in page and "board/live" in page
+    live = text(client.get("/helpdesk/board/live"))
+    assert 'data-unread="1"' in live and "New ticket" in live and "Printer jam" in live
+    assert "Projector in W401" in live.split("Open queue")[0]   # unread column
+    assert "Printer jam" in live.split("Open queue")[1]         # queue column
+    # Looking at the board doesn't mark anything read.
+    assert db_for(app).execute("SELECT unread FROM tickets WHERE id = 1").fetchone()[0] == 1
+
+
+def test_daily_digest(app, client, team):
+    team.deliver(make_email())
+    team.deliver(make_email(subject="Printer jam", msg_id="<p@x>"), thread="t2")
+    check(client)
+    client.post("/helpdesk/2/update", data={"priority": "Urgent", "assigned_to": "Rafael"})
+    before = len(team.sent)
+    page = text(client.post("/helpdesk/email/digest", follow_redirects=True))
+    assert "Sent the daily digest" in page
+    digest = mailsync.parse_message(team.sent[before][0])
+    assert digest["subject"].startswith("[Help Desk] ") and digest["subject"].endswith(": 2 open, 2 new")
+    body = digest["body"]
+    assert body.index("#2 [Urgent, New] Printer jam") < body.index("#1 [Normal, New] Projector")
+    assert "http://10.0.0.5:5000/helpdesk/1" in body and "unassigned" in body
+    import email as email_lib
+    import email.policy
+    msg = email_lib.message_from_bytes(team.sent[before][0], policy=email.policy.default)
+    html = msg.get_body(preferencelist=("html",)).get_content()
+    assert "<table" in html and 'href="http://10.0.0.5:5000/helpdesk/2"' in html
+
+
+def test_digest_schedule():
+    from datetime import datetime
+    cfg = {"digest_enabled": True, "digest_time": "07:30", "digest_weekdays": True, "last_digest": None}
+    monday_early, monday_late = datetime(2026, 11, 2, 7, 0), datetime(2026, 11, 2, 7, 31)
+    assert not mailsync.digest_due(cfg, monday_early)
+    assert mailsync.digest_due(cfg, monday_late)
+    assert not mailsync.digest_due(cfg | {"last_digest": "2026-11-02"}, monday_late)  # once a day
+    saturday = datetime(2026, 11, 7, 9, 0)
+    assert not mailsync.digest_due(cfg, saturday)
+    assert mailsync.digest_due(cfg | {"digest_weekdays": False}, saturday)
+    assert not mailsync.digest_due(cfg | {"digest_enabled": False}, monday_late)
+
+
+def test_team_settings_saved_and_validated(app, client, gmail):
+    base = {"mail_mailbox": MAILBOX, "mail_enabled": "1"}
+    page = text(client.post("/helpdesk/email", data=base | {"mail_team": "rafael@thehudsonschool.org, nope"},
+                            follow_redirects=True))
+    assert "don&#39;t look right: nope" in page
+    page = text(client.post("/helpdesk/email", data=base | {"mail_team": "a@x.org", "digest_time": "7.30"},
+                            follow_redirects=True))
+    assert "must look like 07:30" in page
+    client.post("/helpdesk/email", data=base | {
+        "mail_team": "Rafael@TheHudsonSchool.org\nit2@thehudsonschool.org; rafael@thehudsonschool.org",
+        "notify_new": "1", "digest_enabled": "1", "digest_time": "06:45", "mail_link_base": "http://helpdesk.local:5000/"})
+    cfg = app_settings.load(app.config["SETTINGS_PATH"])
+    assert cfg["mail_team"] == "rafael@thehudsonschool.org, it2@thehudsonschool.org"
+    assert cfg["notify_new"] is True and cfg["notify_replies"] is False
+    assert cfg["digest_enabled"] is True and cfg["digest_time"] == "06:45" and cfg["digest_weekdays"] is False
+    assert cfg["mail_link_base"] == "http://helpdesk.local:5000"
+    page = text(client.get("/helpdesk/email"))
+    assert "Send the digest now" in page and "Allow phones and other computers" in page
+
+
+def test_notifications_off_and_no_team(app, client, team):
+    app_settings.update(app.config["SETTINGS_PATH"], notify_new=False)
+    team.deliver(make_email())
+    check(client)
+    assert sent_to_team(team) == []
+    app_settings.update(app.config["SETTINGS_PATH"], notify_new=True, mail_team="")
+    team.deliver(make_email(subject="Another", msg_id="<q@x>"), thread="t5")
+    check(client)
+    assert sent_to_team(team) == []
+    assert "Add the IT team" in text(client.post("/helpdesk/email/digest", follow_redirects=True))

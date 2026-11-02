@@ -1,0 +1,45 @@
+{# The part of the board that refreshes. data-unread lists unread ticket ids so the page can spot new ones. #}
+<div id="live" data-unread="{{ unread|map(attribute='id')|join(',') }}">
+  <section class="board-counts">
+    <div class="board-count {{ 'hot' if counts.unread }}"><strong>{{ counts.unread or 0 }}</strong><span>Unread</span></div>
+    <div class="board-count {{ 'warm' if counts.new }}"><strong>{{ counts.new or 0 }}</strong><span>New</span></div>
+    <div class="board-count"><strong>{{ counts.open or 0 }}</strong><span>Open</span></div>
+    <div class="board-count {{ 'warm' if counts.unassigned }}"><strong>{{ counts.unassigned or 0 }}</strong><span>Unassigned</span></div>
+    <div class="board-count {{ 'hot' if counts.urgent }}"><strong>{{ counts.urgent or 0 }}</strong><span>High / urgent</span></div>
+    <div class="board-count"><strong>{{ counts.closed_today or 0 }}</strong><span>Closed today</span></div>
+  </section>
+  <div class="board-columns">
+    <section>
+      <h2>Unread <span class="muted">new tickets and replies nobody has opened</span></h2>
+      {% for t in unread %}
+      <a class="board-ticket unread" data-id="{{ t.id }}" href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">
+        <div class="bt-top"><span class="bt-num">#{{ t.id }}</span>
+          <span class="badge priority-{{ t.priority|lower }}">{{ t.priority }}</span>
+          <span class="bt-what">{{ 'Reply from ' ~ (t.last_author or 'requester') if t.last_kind == 'incoming' else 'New ticket' }}</span>
+          <span class="bt-age">{{ t.updated_at|ago }}</span></div>
+        <div class="bt-subject">{{ t.subject }}</div>
+        <div class="bt-meta">{{ t.requester_name or t.requester_email or '' }}{% if t.location %} · {{ t.location }}{% endif %}{% if t.devices %} · {{ t.devices }}{% endif %}{% if t.assigned_to %} · {{ t.assigned_to }}{% endif %}</div>
+      </a>
+      {% else %}<p class="board-empty">All caught up.</p>{% endfor %}
+    </section>
+    <section>
+      <h2>Open queue <span class="muted">by priority, oldest first</span></h2>
+      {% for t in queue %}
+      <a class="board-ticket" href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">
+        <div class="bt-top"><span class="bt-num">#{{ t.id }}</span>
+          <span class="badge priority-{{ t.priority|lower }}">{{ t.priority }}</span>
+          <span class="badge ticket-{{ t.status|lower }}">{{ t.status }}</span>
+          <span class="bt-who">{{ t.assigned_to or 'Unassigned' }}</span>
+          <span class="bt-age">open {{ t.created_at|ago|replace(' ago', '') }}</span></div>
+        <div class="bt-subject">{{ t.subject }}</div>
+        <div class="bt-meta">{{ t.requester_name or t.requester_email or '' }}{% if t.location %} · {{ t.location }}{% endif %}{% if t.devices %} · {{ t.devices }}{% endif %}</div>
+      </a>
+      {% else %}<p class="board-empty">No other open tickets.</p>{% endfor %}
+    </section>
+  </div>
+  <p class="board-foot muted">
+    {% if mail.connected and mail.mail_enabled %}Email to {{ mail.mailbox }} is checked every {{ mail.mail_interval }} min{% if mail.last_check %}, last {{ mail.last_check|ago }}{% endif %}.
+      {% if mail.last_error %}<span class="error-text">Last check failed: {{ mail.last_error }}</span>{% endif %}
+    {% else %}Email checking is off.{% endif %}
+  </p>
+</div>

@@ -11,7 +11,8 @@
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}">Device Inventory</a>
     <nav>
-      <a href="{{ url_for('helpdesk.queue') }}">Help Desk{% if OPEN_TICKETS %} <span class="nav-count">{{ OPEN_TICKETS }}</span>{% endif %}</a>
+      <a href="{{ url_for('helpdesk.queue', view='unread') if UNREAD_TICKETS else url_for('helpdesk.queue') }}">Help Desk{% if OPEN_TICKETS %}
+        <span class="nav-count{{ ' unread' if UNREAD_TICKETS }}" title="{{ OPEN_TICKETS }} open{% if UNREAD_TICKETS %}, {{ UNREAD_TICKETS }} unread{% endif %}">{{ OPEN_TICKETS }}</span>{% endif %}</a>
       <a href="{{ url_for('index') }}">Devices</a>
       <a href="{{ url_for('locations') }}">Locations</a>
       <a href="{{ url_for('lists') }}">Lists</a>

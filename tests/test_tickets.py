@@ -58,7 +58,7 @@ def test_create_ticket_links_device_and_takes_its_location(client):
     assert f"/helpdesk/{ticket_id}" in device_page and "Ticket #1 (Screen cracked) linked" in device_page
     assert "1 open" in text(client.get("/"))
     queue = text(client.get("/helpdesk/"))
-    assert "Screen cracked" in queue and 'class="nav-count">1<' in queue
+    assert "Screen cracked" in queue and re.search(r'class="nav-count"[^>]*>1<', queue)
     assert "CB-494" in text(client.get("/?tickets=open"))
 
 

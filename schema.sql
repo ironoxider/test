@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     source            TEXT NOT NULL DEFAULT 'manual',  -- manual, email, spiceworks
     spiceworks_number TEXT,
     gmail_thread_id   TEXT,                            -- the ticket's email thread
+    unread            INTEGER NOT NULL DEFAULT 0,      -- 1 = new email or reply nobody has opened yet
     created_at        TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
     closed_at         TEXT
@@ -83,7 +84,7 @@ CREATE TABLE IF NOT EXISTS ticket_devices (
 CREATE INDEX IF NOT EXISTS idx_ticket_devices_device ON ticket_devices(device_id);
 
 -- kind: description (the original request), note (internal), reply (to the requester),
--- auto (the automatic "we got it" email),
+-- auto (the automatic "we got it" email), notify (an email to the IT team about the ticket),
 -- incoming (a reply from the requester), event (a change such as "Status: Open -> Closed").
 CREATE TABLE IF NOT EXISTS ticket_messages (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

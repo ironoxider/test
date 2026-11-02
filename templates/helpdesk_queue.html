@@ -7,7 +7,10 @@
 {% block content %}
 <div class="heading">
   <h1>Help Desk</h1>
-  <div class="actions"><a class="button" href="{{ url_for('helpdesk.new') }}">+ New ticket</a></div>
+  <div class="actions">
+    <a class="button secondary" href="{{ url_for('helpdesk.board') }}">Live board</a>
+    <a class="button" href="{{ url_for('helpdesk.new') }}">+ New ticket</a>
+  </div>
 </div>
 
 <section class="stats">
@@ -32,7 +35,7 @@
 </div>
 
 <nav class="tabs">
-  {{ view_link('open', 'Open') }}{{ view_link('new', 'New') }}{{ view_link('waiting', 'Waiting') }}{{ view_link('closed', 'Closed') }}{{ view_link('all', 'All') }}
+  {{ view_link('open', 'Open') }}{{ view_link('unread', 'Unread', counts.unread) }}{{ view_link('new', 'New') }}{{ view_link('waiting', 'Waiting') }}{{ view_link('closed', 'Closed') }}{{ view_link('all', 'All') }}
 </nav>
 
 <form class="filters" method="get">
@@ -72,8 +75,8 @@
   <thead><tr><th>#</th><th>Subject</th><th>Requester</th><th>Location</th><th>Devices</th><th>Priority</th><th>Status</th><th>Assigned</th><th>Updated</th></tr></thead>
   <tbody>
   {% for t in tickets %}
-    <tr class="{{ 'closed' if t.status == 'Closed' }}">
-      <td class="mono"><a href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">#{{ t.id }}</a></td>
+    <tr class="{{ 'closed' if t.status == 'Closed' }} {{ 'unread' if t.unread }}">
+      <td class="mono">{% if t.unread %}<span class="unread-dot" title="Unread"></span>{% endif %}<a href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">#{{ t.id }}</a></td>
       <td class="wrap subject"><a href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">{{ t.subject }}</a>
         {% if t.category %}<span class="muted small-note"> · {{ t.category }}</span>{% endif %}</td>
       <td class="wrap">{{ t.requester_name or t.requester_email or '' }}</td>

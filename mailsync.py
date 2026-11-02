@@ -31,7 +31,11 @@ SKIPPED_LABEL = "Help Desk/Skipped"
 TICKET_TAG_RE = re.compile(r"\[Ticket #(\d+)\]", re.I)
 MAX_BODY = 20000
 DEFAULTS = {"mail_enabled": False, "mail_interval": 2, "mail_auto_reply": True,
-            "mail_allowed_domain": "thehudsonschool.org", "mail_from_name": "IT Help Desk"}
+            "mail_allowed_domain": "thehudsonschool.org", "mail_from_name": "IT Help Desk",
+            # The IT team: who hears about new tickets and replies, and gets the daily digest.
+            "mail_team": "", "notify_new": True, "notify_replies": True,
+            "digest_enabled": False, "digest_time": "07:30", "digest_weekdays": True,
+            "mail_link_base": ""}
 
 _check_lock = threading.Lock()
 
@@ -49,7 +53,26 @@ def config():
     return {k: data.get(k, v) for k, v in DEFAULTS.items()} | {
         "mailbox": data.get("mail_mailbox"),
         "last_check": data.get("mail_last_check"), "last_error": data.get("mail_last_error"),
-        "last_result": data.get("mail_last_result")}
+        "last_result": data.get("mail_last_result"), "last_digest": data.get("last_digest")}
+
+
+def team_addresses(cfg):
+    return list(dict.fromkeys(a.lower() for a in re.findall(r"[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+",
+                                                             cfg.get("mail_team") or "")))
+
+
+def link_base(cfg=None):
+    """The start of links in emails, e.g. http://192.168.1.20:5000 (this computer on the network)."""
+    cfg = cfg or config()
+    if cfg.get("mail_link_base"):
+        return cfg["mail_link_base"].rstrip("/")
+    port = current_app.config.get("LISTEN_PORT") or 5000
+    addresses = app_settings.lan_addresses()
+    return f"http://{addresses[0] if addresses else '127.0.0.1'}:{port}"
+
+
+def ticket_url(ticket_id, cfg=None):
+    return f"{link_base(cfg)}/helpdesk/{ticket_id}"
 
 
 def data_dir():
@@ -165,7 +188,7 @@ def parse_message(raw):
     return {
         "from_name": name.strip() or None,
         "from_email": address.strip().lower() or None,
-        "to": [a.lower() for _, a in getaddresses([str(msg.get("To", "")), str(msg.get("Cc", ""))])],
+        "to": [a.lower() for _, a in getaddresses([str(msg.get("To", "")), str(msg.get("Cc", ""))]) if a],
         "subject": " ".join(str(msg.get("Subject", "")).split()) or "(no subject)",
         "message_id": str(msg.get("Message-ID", "")).strip() or None,
         "references": re.findall(r"<[^<>\s]+>", refs),
@@ -223,7 +246,7 @@ def process_mailbox(client, db, cfg, mailbox):
     """Import new mail. Returns counts of what happened."""
     imported = client.label_id(IMPORTED_LABEL)
     skipped_label = client.label_id(SKIPPED_LABEL)
-    counts = {"new": 0, "replies": 0, "skipped": 0}
+    counts = {"new": 0, "replies": 0, "skipped": 0, "notes": 0}
     query = f'in:inbox -label:"{IMPORTED_LABEL}" -label:"{SKIPPED_LABEL}"'
     for gmail_id in client.list_ids(query):
         if db.execute("SELECT 1 FROM ticket_messages WHERE gmail_id = ?", (gmail_id,)).fetchone():
@@ -238,9 +261,17 @@ def process_mailbox(client, db, cfg, mailbox):
             client.add_label(gmail_id, skipped_label)
             counts["skipped"] += 1
             continue
-        if ticket:
+        team = team_addresses(cfg)
+        if ticket and parsed["from_email"] in team and parsed["from_email"] != (ticket["requester_email"] or "").lower():
+            # An IT team member replying (usually to a notification): an internal note.
+            add_team_note(db, ticket, parsed, gmail_id)
+            counts["notes"] = counts.get("notes", 0) + 1
+        elif ticket:
             add_incoming(db, ticket, parsed, gmail_id)
             counts["replies"] += 1
+            db.commit()
+            if cfg["notify_replies"]:
+                notify_team(client, db, ticket["id"], "reply", cfg, mailbox, parsed)
         else:
             ticket_id = create_from_email(db, parsed, gmail_id, thread_id)
             counts["new"] += 1
@@ -249,11 +280,20 @@ def process_mailbox(client, db, cfg, mailbox):
                 try:
                     send_acknowledgement(client, db, ticket_id, parsed, cfg, mailbox)
                 except gmail_api.GmailError as e:
-                    _hd().add_message(db, ticket_id, "event",
-                                                       f"The automatic reply couldn't be sent: {e}")
+                    _hd().add_message(db, ticket_id, "event", f"The automatic reply couldn't be sent: {e}")
+            if cfg["notify_new"]:
+                notify_team(client, db, ticket_id, "new", cfg, mailbox, parsed)
         db.commit()
         client.add_label(gmail_id, imported)
     return counts
+
+
+def add_team_note(db, ticket, parsed, gmail_id):
+    db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id)"
+               " VALUES (?, 'note', ?, ?, ?, ?, ?)",
+               (ticket["id"], parsed["from_name"] or parsed["from_email"], parsed["from_email"],
+                body_with_attachments(parsed), parsed["message_id"], gmail_id))
+    db.execute("UPDATE tickets SET updated_at = datetime('now') WHERE id = ?", (ticket["id"],))
 
 
 def add_incoming(db, ticket, parsed, gmail_id):
@@ -262,7 +302,7 @@ def add_incoming(db, ticket, parsed, gmail_id):
                " VALUES (?, 'incoming', ?, ?, ?, ?, ?)",
                (ticket["id"], parsed["from_name"] or parsed["from_email"], parsed["from_email"],
                 body_with_attachments(parsed), parsed["message_id"], gmail_id))
-    db.execute("UPDATE tickets SET updated_at = datetime('now') WHERE id = ?", (ticket["id"],))
+    db.execute("UPDATE tickets SET updated_at = datetime('now'), unread = 1 WHERE id = ?", (ticket["id"],))
     if ticket["status"] in ("Closed", "Waiting"):
         db.execute("UPDATE tickets SET status = 'Open', closed_at = NULL WHERE id = ?", (ticket["id"],))
         hd.add_message(db, ticket["id"], "event", f"Status: {ticket['status']} → Open (the requester replied)")
@@ -273,8 +313,8 @@ def create_from_email(db, parsed, gmail_id, thread_id):
     hd = _hd()
     subject = TICKET_TAG_RE.sub("", parsed["subject"]).strip() or "(no subject)"
     cur = db.execute(
-        "INSERT INTO tickets (subject, requester_name, requester_email, status, source, gmail_thread_id)"
-        " VALUES (?, ?, ?, 'New', 'email', ?)",
+        "INSERT INTO tickets (subject, requester_name, requester_email, status, source, gmail_thread_id, unread)"
+        " VALUES (?, ?, ?, 'New', 'email', ?, 1)",
         (subject, parsed["from_name"], parsed["from_email"], thread_id))
     ticket_id = cur.lastrowid
     db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id)"
@@ -306,7 +346,8 @@ def build_email(cfg, mailbox, ticket, to, body, in_reply_to=None, references=())
 def thread_headers(db, ticket_id):
     """In-Reply-To and References for the next email on a ticket, so mail apps thread it."""
     ids = [r["message_id"] for r in db.execute(
-        "SELECT message_id FROM ticket_messages WHERE ticket_id = ? AND message_id IS NOT NULL ORDER BY id",
+        "SELECT message_id FROM ticket_messages WHERE ticket_id = ? AND message_id IS NOT NULL"
+        " AND kind NOT IN ('notify', 'note') ORDER BY id",  # the requester's conversation only
         (ticket_id,))]
     return (ids[-1] if ids else None), ids[:-1][-10:]
 
@@ -336,6 +377,137 @@ def send_acknowledgement(client, db, ticket_id, parsed, cfg, mailbox):
             f"{cfg['mail_from_name'] or 'IT Help Desk'}")
     send_on_ticket(client, db, ticket_id, body, cfg, mailbox, "auto", cfg["mail_from_name"])
     db.commit()
+
+
+# ---------------------------------------------------------------- the IT team
+
+
+def build_team_email(cfg, mailbox, to, subject, text, html=None):
+    msg = EmailMessage()
+    msg["From"] = f'{cfg["mail_from_name"]} <{mailbox}>' if cfg["mail_from_name"] else mailbox
+    msg["To"] = ", ".join(to)
+    msg["Subject"] = subject
+    msg["Message-ID"] = make_msgid(domain=mailbox.split("@")[-1])
+    msg.set_content(text)
+    if html:
+        msg.add_alternative(html, subtype="html")
+    return msg
+
+
+def notify_team(client, db, ticket_id, what, cfg, mailbox, parsed):
+    """Email the IT team about a new ticket ("new") or a requester's reply ("reply").
+
+    Its Message-ID is kept on the ticket, so a team member's reply to it becomes an internal note.
+    """
+    hd = _hd()
+    team = [a for a in team_addresses(cfg) if a != (parsed.get("from_email") or "")]
+    if not team:
+        return
+    ticket = hd.get_ticket(db, ticket_id)
+    devices = ", ".join(core.device_label(d) for d in hd.linked_devices(db, ticket_id))
+    who = parsed.get("from_name") or parsed.get("from_email") or "Someone"
+    heading = f"New ticket from {who}" if what == "new" else f"{who} replied"
+    details = [("Requester", f"{ticket['requester_name'] or ''} <{ticket['requester_email'] or ''}>".strip()),
+               ("Location", ticket["location"]), ("Devices", devices), ("Priority", ticket["priority"]),
+               ("Assigned to", ticket["assigned_to"] or "nobody yet")]
+    text = (f"{heading}: #{ticket_id} {ticket['subject']}\n\n{parsed.get('body') or ''}\n\n"
+            + "\n".join(f"{k}: {v}" for k, v in details if v) +
+            f"\n\nOpen the ticket: {ticket_url(ticket_id, cfg)}\n\n"
+            "Reply to this email to add an internal note to the ticket (the requester won't see it).")
+    label = "New ticket" if what == "new" else "Reply on ticket"
+    msg = build_team_email(cfg, mailbox, team, f"[Help Desk] {label} #{ticket_id}: {ticket['subject']}", text)
+    try:
+        gmail_id, _ = client.send(msg.as_bytes())
+    except gmail_api.GmailError as e:
+        hd.add_message(db, ticket_id, "event", f"Couldn't email the IT team: {e}")
+        return
+    db.execute("INSERT INTO ticket_messages (ticket_id, kind, author, author_email, body, message_id, gmail_id)"
+               " VALUES (?, 'notify', ?, ?, ?, ?, ?)",
+               (ticket_id, cfg["mail_from_name"], mailbox, f"Emailed the IT team ({', '.join(team)}).",
+                msg["Message-ID"], gmail_id))
+
+
+def open_tickets_for_digest(db):
+    return db.execute(
+        "SELECT t.*, l.name AS location,"
+        " (SELECT GROUP_CONCAT(COALESCE(d.asset_tag, d.name), ', ') FROM ticket_devices td"
+        "  JOIN devices d ON d.id = td.device_id WHERE td.ticket_id = t.id) AS devices"
+        " FROM tickets t LEFT JOIN locations l ON l.id = t.location_id WHERE t.status != 'Closed'"
+        " ORDER BY CASE t.priority WHEN 'Urgent' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END,"
+        " t.created_at LIMIT 200").fetchall()
+
+
+def digest_email(db, cfg, mailbox, to):
+    """The daily summary of open tickets, as an email (plain text and HTML)."""
+    from html import escape
+    tickets = open_tickets_for_digest(db)
+    closed = db.execute("SELECT COUNT(*) FROM tickets WHERE closed_at >= datetime('now', '-1 day')").fetchone()[0]
+    counts = {
+        "open": len(tickets), "new": sum(t["status"] == "New" for t in tickets),
+        "unassigned": sum(not t["assigned_to"] for t in tickets),
+        "urgent": sum(t["priority"] in ("High", "Urgent") for t in tickets),
+    }
+    summary = (f"{counts['open']} open ticket{'s' if counts['open'] != 1 else ''}: {counts['new']} new, "
+               f"{counts['unassigned']} unassigned, {counts['urgent']} high or urgent. "
+               f"{closed} closed in the last 24 hours.")
+    lines = [summary, ""]
+    rows = []
+    for t in tickets:
+        age = core.time_ago(t["created_at"]).replace(" ago", "")
+        lines.append(f"#{t['id']} [{t['priority']}, {t['status']}] {t['subject']} - "
+                     f"{t['requester_name'] or t['requester_email'] or ''}"
+                     f"{' - ' + t['location'] if t['location'] else ''} - "
+                     f"{t['assigned_to'] or 'unassigned'} - open {age}\n  {ticket_url(t['id'], cfg)}")
+        rows.append(
+            "<tr>" + "".join(f'<td style="padding:4px 8px;border-bottom:1px solid #ddd">{c}</td>' for c in (
+                f'<a href="{escape(ticket_url(t["id"], cfg))}">#{t["id"]}</a>',
+                f'<a href="{escape(ticket_url(t["id"], cfg))}">{escape(t["subject"])}</a>',
+                escape(t["requester_name"] or t["requester_email"] or ""), escape(t["location"] or ""),
+                escape(t["devices"] or ""), escape(t["priority"]), escape(t["status"]),
+                escape(t["assigned_to"] or "unassigned"), escape(age))) + "</tr>")
+    if not tickets:
+        lines.append("No open tickets.")
+    lines += ["", f"Help Desk: {link_base(cfg)}/helpdesk/"]
+    head = "".join(f'<th style="text-align:left;padding:4px 8px;border-bottom:2px solid #999">{h}</th>' for h in
+                   ("#", "Subject", "Requester", "Location", "Devices", "Priority", "Status", "Assigned", "Open for"))
+    html_body = (f'<p style="font-family:sans-serif">{escape(summary)}</p>'
+                 + (f'<table style="border-collapse:collapse;font-family:sans-serif;font-size:14px">'
+                    f'<tr>{head}</tr>{"".join(rows)}</table>' if rows else "<p>No open tickets.</p>")
+                 + f'<p style="font-family:sans-serif"><a href="{escape(link_base(cfg))}/helpdesk/">Open the Help Desk</a></p>')
+    now = datetime.now()
+    subject = f"[Help Desk] {now:%A, %B} {now.day}: {counts['open']} open, {counts['new']} new"
+    return build_team_email(cfg, mailbox, to, subject, "\n".join(lines), html_body)
+
+
+def send_digest(client=None):
+    """Send the daily digest now. Returns an error message, or None."""
+    cfg = config()
+    team = team_addresses(cfg)
+    if not team:
+        return "Add the IT team's email addresses first."
+    if not connected() or not cfg["mailbox"]:
+        return "The help desk mailbox isn't connected."
+    try:
+        msg = digest_email(core.get_db(), cfg, cfg["mailbox"], team)
+        (client or get_client()).send(msg.as_bytes())
+    except gmail_api.GmailError as e:
+        return str(e)
+    app_settings.update(current_app.config["SETTINGS_PATH"], last_digest=datetime.now().strftime("%Y-%m-%d"))
+    return None
+
+
+def digest_due(cfg, now=None):
+    """Whether today's digest should go out now (after the set time, once a day)."""
+    now = now or datetime.now()
+    if not cfg["digest_enabled"] or cfg.get("last_digest") == now.strftime("%Y-%m-%d"):
+        return False
+    if cfg["digest_weekdays"] and now.weekday() >= 5:
+        return False
+    try:
+        hour, minute = (int(x) for x in str(cfg["digest_time"]).split(":"))
+    except ValueError:
+        hour, minute = 7, 30
+    return (now.hour, now.minute) >= (hour, minute)
 
 
 # ---------------------------------------------------------------- checking
@@ -372,6 +544,14 @@ def start_background(app):
                     if cfg["mail_enabled"] and time.time() - last >= max(1, int(cfg["mail_interval"])) * 60:
                         last = time.time()
                         check_now()
+                    if digest_due(cfg) and connected():
+                        error = send_digest()
+                        if error:
+                            print(f"Help desk daily digest wasn't sent: {error}", flush=True)
+                            # Don't retry every 15 seconds; try again tomorrow (or use Send now).
+                            app_settings.update(current_app.config["SETTINGS_PATH"],
+                                                last_digest=datetime.now().strftime("%Y-%m-%d"),
+                                                mail_last_error=f"Daily digest wasn't sent: {error}")
             except Exception as e:  # keep checking even if one round fails unexpectedly
                 print(f"Help desk email check failed: {e}", flush=True)
     threading.Thread(target=loop, name="helpdesk-mail", daemon=True).start()

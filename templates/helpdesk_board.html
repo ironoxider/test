@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="app-version" content="{{ APP_VERSION }}">
+  <title>Help Desk board</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="board-page">
+  <header class="board-head">
+    <h1>Help Desk</h1>
+    <div class="board-tools">
+      <span id="board-clock" class="board-clock"></span>
+      <span id="board-status" class="muted"></span>
+      <button type="button" id="board-sound" class="secondary small">Sound off</button>
+      <a class="button secondary small" href="{{ url_for('helpdesk.queue') }}">Open the queue</a>
+    </div>
+  </header>
+  {% include "helpdesk_board_live.html" %}
+<script>
+(function () {
+  "use strict";
+  const LIVE_URL = "{{ url_for('helpdesk.board_live') }}";
+  const REFRESH_MS = 10000;
+  const statusEl = document.getElementById("board-status");
+  const soundBtn = document.getElementById("board-sound");
+  let seen = new Set(ids(document.getElementById("live")));
+  let sound = false;
+  try { sound = localStorage.getItem("board-sound") === "on"; } catch (e) { /* storage blocked */ }
+  showSound();
+
+  function ids(el) {
+    return (el.dataset.unread || "").split(",").filter(Boolean);
+  }
+  function showSound() {
+    soundBtn.textContent = sound ? "Sound on" : "Sound off";
+    soundBtn.setAttribute("aria-pressed", sound ? "true" : "false");
+  }
+  soundBtn.addEventListener("click", function () {
+    sound = !sound;  // clicking also lets the browser play audio from now on
+    try { localStorage.setItem("board-sound", sound ? "on" : "off"); } catch (e) { /* ignore */ }
+    showSound();
+    if (sound) chime();
+  });
+  function chime() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [660, 880].forEach(function (freq, i) {
+        const osc = ctx.createOscillator(), gain = ctx.createGain();
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.18);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.3);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime + i * 0.18);
+        osc.stop(ctx.currentTime + i * 0.18 + 0.32);
+      });
+    } catch (e) { /* no audio */ }
+  }
+  function tick() {
+    const now = new Date();
+    document.getElementById("board-clock").textContent =
+      now.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }) + " · " +
+      now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  async function refresh() {
+    try {
+      const resp = await fetch(LIVE_URL, { cache: "no-store" });
+      if (!resp.ok) throw new Error(resp.status);
+      const holder = document.createElement("div");
+      holder.innerHTML = await resp.text();
+      const fresh = holder.firstElementChild;
+      const arrived = ids(fresh).filter(function (id) { return !seen.has(id); });
+      document.getElementById("live").replaceWith(fresh);
+      arrived.forEach(function (id) {
+        const card = fresh.querySelector('.board-ticket[data-id="' + id + '"]');
+        if (card) card.classList.add("just-arrived");
+      });
+      if (arrived.length && sound) chime();
+      seen = new Set(ids(fresh));
+      statusEl.textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+      statusEl.classList.remove("error-text");
+    } catch (e) {
+      statusEl.textContent = "Can't reach Device Inventory; retrying…";
+      statusEl.classList.add("error-text");
+    }
+  }
+  tick();
+  setInterval(tick, 15000);
+  setInterval(refresh, REFRESH_MS);
+})();
+</script>
+</body>
+</html>

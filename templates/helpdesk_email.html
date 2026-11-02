@@ -48,9 +48,39 @@
     <p class="wide muted small-note">{% if has_client %}A client file is saved. Upload a new one only to replace it.{% else %}No client file yet.{% endif %}
       Email from other addresses, automatic replies and bounces are labelled "Help Desk/Skipped" in Gmail
       instead of becoming tickets (replies on an existing ticket are always accepted).</p>
-    <div class="actions wide"><button type="submit">Save</button></div>
   </fieldset>
+  <fieldset id="team">
+    <legend>IT team</legend>
+    <label class="wide">IT team email addresses
+      <textarea name="mail_team" rows="2" placeholder="you@thehudsonschool.org, colleague@thehudsonschool.org" spellcheck="false">{{ mail.mail_team }}</textarea></label>
+    <label class="checkbox wide"><input type="checkbox" name="notify_new" value="1" {% if mail.notify_new %}checked{% endif %}>
+      Email the team when a new ticket comes in by email</label>
+    <label class="checkbox wide"><input type="checkbox" name="notify_replies" value="1" {% if mail.notify_replies %}checked{% endif %}>
+      Email the team when a requester replies on a ticket</label>
+    <label class="checkbox"><input type="checkbox" name="digest_enabled" value="1" {% if mail.digest_enabled %}checked{% endif %}>
+      Send a daily digest of open tickets at</label>
+    <label>Time<input type="time" name="digest_time" value="{{ mail.digest_time }}"></label>
+    <label class="checkbox wide"><input type="checkbox" name="digest_weekdays" value="1" {% if mail.digest_weekdays %}checked{% endif %}>
+      Weekdays only (no digest on Saturday and Sunday)</label>
+    <label class="wide">Address for links in these emails
+      <input name="mail_link_base" value="{{ mail.mail_link_base or '' }}" placeholder="{{ link_base }} (automatic)" spellcheck="false"></label>
+    <p class="wide muted small-note">Team emails come from the help desk mailbox and link to each ticket. <strong>Replying to one
+      adds an internal note</strong> to the ticket; the requester doesn't see it. Links use
+      <code>{{ link_base }}</code>, this computer's address on the school network, so they open on other computers
+      only while Device Inventory is running and
+      {% if network_on %}"Allow phones and other computers" is on (it is).{% else %}<strong>"Allow phones and other computers" is turned on in
+      <a href="{{ url_for('settings') }}#phone">Settings</a> (it's off now)</strong>.{% endif %}
+      The digest goes out once a day at the time above while Device Inventory is running{% if mail.last_digest %};
+      the last one was sent {{ mail.last_digest }}{% endif %}.</p>
+  </fieldset>
+  <div class="actions"><button type="submit">Save</button></div>
 </form>
+{% if mail.connected %}
+<form method="post" action="{{ url_for('helpdesk.email_digest') }}" class="connect-form">
+  <button type="submit" class="secondary">Send the digest now</button>
+  <span class="muted">Sends today's summary of open tickets to the IT team, to see what it looks like.</span>
+</form>
+{% endif %}
 {% if has_client and mail.mailbox and not mail.connected %}
 <form method="post" action="{{ url_for('helpdesk.email_connect') }}" class="connect-form">
   <button type="submit">Connect mailbox</button>

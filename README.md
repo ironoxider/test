@@ -62,6 +62,18 @@ is no database server to set up.
     to Waiting or Closed.
   - Auto-replies, bounces and outside senders are labelled "Help Desk/Skipped" in Gmail instead of becoming
     tickets; imported mail is labelled "Help Desk/Imported". Nothing is deleted.
+  - **The IT team** (addresses set on the Email setup page) gets an email for each new ticket and each requester
+    reply, with the details and a link to the ticket. **Replying to one of these adds an internal note** to the
+    ticket instead of reaching the requester.
+  - **Daily digest**: at a set time (weekdays only, if you like) the team gets one email listing every open ticket
+    by priority, with links; **Send the digest now** shows what it looks like.
+  - Links in these emails use this computer's network address, so they open on other computers while Device
+    Inventory is running with "Allow phones and other computers" on in Settings.
+- **Unread tickets and the live board**: tickets with a new email or reply nobody has opened yet are **unread**:
+  marked in the queue (with an Unread tab) and turning the Help Desk count in the menu red. **Live board** (on the
+  Help Desk page) is a full-screen view for a monitor in the IT office: counts, unread tickets and the open queue,
+  refreshing every 10 seconds; new arrivals flash, with an optional chime (click "Sound off" to turn it on).
+  New email appears after the next mailbox check (every 2 minutes by default; 1 minute is the shortest).
   - Still to come: running on an always-on campus server with Google sign-in for IT staff (stage 3).
 - **CSV export and import**: export the current filtered view. When you import, a row whose asset
   tag already exists updates that device, and any other row adds a new one.

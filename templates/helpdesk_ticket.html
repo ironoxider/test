@@ -36,13 +36,13 @@
         {% if spiceworks_link %}<a href="{{ spiceworks_link }}" target="_blank" rel="noopener">{{ ticket.spiceworks_number }}</a>{% else %}{{ ticket.spiceworks_number }}{% endif %}.{% endif %}
     </p>
     {% for m in messages %}
-      {% if m.kind == 'event' %}
+      {% if m.kind in ('event', 'notify') %}
       <div class="event"><span>{{ m.body }}</span> <span class="muted">· {{ m.created_at|localtime }}</span></div>
       {% else %}
       <article class="message message-{{ m.kind }}">
         <header>
           <strong>{{ m.author or ('Requester' if m.kind in ('description', 'incoming') else 'IT') }}</strong>
-          <span class="muted">{{ {'description': 'reported', 'note': 'internal note', 'reply': 'emailed the requester',
+          <span class="muted">{{ {'description': 'reported', 'note': 'internal note by email' if m.gmail_id else 'internal note', 'reply': 'emailed the requester',
             'incoming': 'replied by email', 'auto': 'automatic reply sent'}.get(m.kind, m.kind) }}
             {%- if m.kind == 'description' and ticket.source == 'email' %} by email{% endif %}
             · {{ m.created_at|localtime }}</span>

@@ -21,6 +21,7 @@ PRIORITIES = ["Low", "Normal", "High", "Urgent"]
 PRIORITY_RANK = "CASE t.priority WHEN 'Urgent' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END"
 VIEWS = {
     "open": ("Open", "t.status != 'Closed'"),
+    "unread": ("Unread", "t.unread = 1"),
     "new": ("New", "t.status = 'New'"),
     "waiting": ("Waiting", "t.status = 'Waiting'"),
     "closed": ("Closed", "t.status = 'Closed'"),
@@ -263,7 +264,7 @@ def queue():
         + (" WHERE " + " AND ".join(where) if where else "")
         + f" ORDER BY {SORTS[sort]}, t.id DESC", params).fetchall()
     counts = db.execute(
-        "SELECT SUM(status != 'Closed') AS open, SUM(status = 'New') AS new,"
+        "SELECT SUM(status != 'Closed') AS open, SUM(status = 'New') AS new, SUM(unread = 1) AS unread,"
         " SUM(status = 'Waiting') AS waiting,"
         " SUM(status != 'Closed' AND assigned_to IS NULL) AS unassigned,"
         " SUM(status != 'Closed' AND priority IN ('High', 'Urgent')) AS urgent FROM tickets").fetchone()
@@ -341,6 +342,9 @@ def new():
 def view(ticket_id, reply_draft=None):
     db = core.get_db()
     ticket = get_ticket(db, ticket_id)
+    if ticket["unread"] and request.method == "GET":
+        db.execute("UPDATE tickets SET unread = 0 WHERE id = ?", (ticket_id,))  # someone has seen it
+        db.commit()
     devices = linked_devices(db, ticket_id)
     messages = db.execute("SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY id",
                           (ticket_id,)).fetchall()
@@ -538,6 +542,24 @@ def email_setup():
             changes["mail_interval"] = min(60, max(1, int(f.get("mail_interval", 2))))
         except ValueError:
             pass
+        if "mail_team" in f:
+            team_text = f.get("mail_team") or ""
+            bad = [w for w in re.split(r"[\s,;]+", team_text) if w and not EMAIL_RE.fullmatch(w)]
+            if bad:
+                flash("These IT team addresses don't look right: " + ", ".join(bad), "error")
+                return redirect(url_for("helpdesk.email_setup") + "#team")
+            digest_time = (f.get("digest_time") or "07:30").strip()
+            if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", digest_time):
+                flash("The digest time must look like 07:30.", "error")
+                return redirect(url_for("helpdesk.email_setup") + "#team")
+            link = (core.clean(f.get("mail_link_base")) or "").rstrip("/")
+            if link and not link.startswith(("http://", "https://")):
+                flash("The link address must start with http:// or https://.", "error")
+                return redirect(url_for("helpdesk.email_setup") + "#team")
+            changes |= {"mail_team": ", ".join(mailsync.team_addresses({"mail_team": team_text})),
+                        "notify_new": bool(f.get("notify_new")), "notify_replies": bool(f.get("notify_replies")),
+                        "digest_enabled": bool(f.get("digest_enabled")), "digest_time": digest_time,
+                        "digest_weekdays": bool(f.get("digest_weekdays")), "mail_link_base": link}
         mailbox = (core.clean(f.get("mail_mailbox")) or "").lower()
         if mailbox and not EMAIL_RE.fullmatch(mailbox):
             flash("The mailbox address doesn't look right.", "error")
@@ -561,9 +583,55 @@ def email_setup():
         flash("Email settings saved.", "success")
         return redirect(url_for("helpdesk.email_setup"))
     secrets_data = gmail_api.load_secrets(data_dir)
+    phone_on = app_settings.load(path).get("allow_network", False)
     return render_template("helpdesk_email.html", mail=mail_state(),
                            has_client=bool(secrets_data.get("client_id")),
-                           connected_as=secrets_data.get("connected_email"), redirect_uri=redirect_uri())
+                           connected_as=secrets_data.get("connected_email"), redirect_uri=redirect_uri(),
+                           link_base=mailsync.link_base(), network_on=phone_on)
+
+
+@bp.route("/email/digest", methods=["POST"])
+def email_digest():
+    error = mailsync.send_digest()
+    if error:
+        flash(f"The digest wasn't sent: {error}", "error")
+    else:
+        flash("Sent the daily digest to the IT team.", "success")
+    return redirect(url_for("helpdesk.email_setup") + "#team")
+
+
+# ---------------------------------------------------------------- live board
+
+
+def board_data(db):
+    counts = db.execute(
+        "SELECT SUM(unread = 1) AS unread, SUM(status = 'New') AS new, SUM(status != 'Closed') AS open,"
+        " SUM(status != 'Closed' AND assigned_to IS NULL) AS unassigned,"
+        " SUM(status != 'Closed' AND priority IN ('High', 'Urgent')) AS urgent,"
+        " SUM(closed_at >= datetime('now', 'start of day')) AS closed_today FROM tickets").fetchone()
+    columns = ("SELECT t.*, l.name AS location,"
+               " (SELECT GROUP_CONCAT(COALESCE(d.asset_tag, d.name), ', ') FROM ticket_devices td"
+               "  JOIN devices d ON d.id = td.device_id WHERE td.ticket_id = t.id) AS devices,"
+               " (SELECT m.kind FROM ticket_messages m WHERE m.ticket_id = t.id AND m.kind IN"
+               "  ('description', 'incoming') ORDER BY m.id DESC LIMIT 1) AS last_kind,"
+               " (SELECT m.author FROM ticket_messages m WHERE m.ticket_id = t.id AND m.kind IN"
+               "  ('description', 'incoming') ORDER BY m.id DESC LIMIT 1) AS last_author"
+               " FROM tickets t LEFT JOIN locations l ON l.id = t.location_id")
+    unread = db.execute(columns + " WHERE t.unread = 1 ORDER BY t.updated_at DESC LIMIT 12").fetchall()
+    queue = db.execute(columns + f" WHERE t.status != 'Closed' AND t.unread = 0 ORDER BY {PRIORITY_RANK},"
+                       " t.created_at LIMIT 15").fetchall()
+    return {"counts": counts, "unread": unread, "queue": queue, "mail": mail_state()}
+
+
+@bp.route("/board")
+def board():
+    """A live view for a screen in the IT office: refreshes itself every few seconds."""
+    return render_template("helpdesk_board.html", **board_data(core.get_db()))
+
+
+@bp.route("/board/live")
+def board_live():
+    return render_template("helpdesk_board_live.html", **board_data(core.get_db()))
 
 
 @bp.route("/email/connect", methods=["POST"])

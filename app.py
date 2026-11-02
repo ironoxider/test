@@ -142,7 +142,8 @@ def create_app(test_config=None):
         return {"STATUSES": list_options(db, "status"),
                 "CATEGORIES": list_options(db, "category"),
                 "OPEN_TICKETS": db.execute(
-                    "SELECT COUNT(*) FROM tickets WHERE status != 'Closed'").fetchone()[0]}
+                    "SELECT COUNT(*) FROM tickets WHERE status != 'Closed'").fetchone()[0],
+                "UNREAD_TICKETS": db.execute("SELECT COUNT(*) FROM tickets WHERE unread = 1").fetchone()[0]}
 
     app.jinja_env.filters["localtime"] = local_time
     app.jinja_env.filters["ago"] = time_ago
@@ -190,7 +191,7 @@ def init_db():
         upgrade_devices_table(db, schema)
     upgrade_options_table(db)
     old_tickets = rename_v1_tickets(db)
-    add_missing_columns(db, {"tickets": ["gmail_thread_id"],
+    add_missing_columns(db, {"tickets": ["gmail_thread_id", "unread INTEGER NOT NULL DEFAULT 0"],
                              "ticket_messages": ["author_email", "message_id", "gmail_id"]})
     db.executescript(schema)
     if old_tickets:
@@ -240,12 +241,16 @@ def upgrade_devices_table(db, schema):
 
 
 def add_missing_columns(db, wanted):
-    """Add TEXT columns that newer versions use to tables an older version created."""
-    for table, names in wanted.items():
+    """Add columns that newer versions use to tables an older version created.
+
+    Each entry is a column name (added as TEXT) or a full definition ("unread INTEGER ...").
+    """
+    for table, columns in wanted.items():
         have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
-        for name in names:
+        for column in columns:
+            name = column.split()[0]
             if have and name not in have:
-                db.execute(f"ALTER TABLE {table} ADD COLUMN {name} TEXT")
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {column if ' ' in column else name + ' TEXT'}")
 
 
 def upgrade_options_table(db):
