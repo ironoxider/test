@@ -36,7 +36,7 @@ DEFAULTS = {"mail_enabled": False, "mail_interval": 2, "mail_auto_reply": True,
             # The IT team: who hears about new tickets and replies, and gets the daily digest.
             "mail_team": "", "notify_new": True, "notify_replies": True,
             "digest_enabled": False, "digest_time": "07:30", "digest_weekdays": True,
-            "mail_link_base": ""}
+            "mail_link_base": "", "mail_ack_template": ""}
 
 _check_lock = threading.Lock()
 
@@ -409,12 +409,38 @@ def send_on_ticket(client, db, ticket_id, body, cfg, mailbox, kind, author=None)
     db.execute("UPDATE tickets SET updated_at = datetime('now') WHERE id = ?", (ticket_id,))
 
 
+# The automatic reply to a new ticket; editable on Help Desk → Email setup (blank there = this).
+DEFAULT_ACK = ("Hi {first_name},\n\n"
+               "Thanks, we've received your request and opened ticket #{ticket}: {subject}\n\n"
+               "To add details or photos, reply to this email.\n\n"
+               "{team}\n{school}")
+ACK_PLACEHOLDERS = {
+    "first_name": "the requester's first name (or \"there\")", "name": "their full name",
+    "email": "their email address", "ticket": "the ticket number", "subject": "the email's subject",
+    "team": "the name on emails sent", "school": "The Hudson School",
+    "date": "today's date", "weekday": "today's day, e.g. Friday",
+}
+
+
+def ack_text(template, values):
+    """Fill {placeholders} in an auto-reply; anything else in braces is left as typed."""
+    return re.sub(r"\{(\w+)\}", lambda m: str(values[m.group(1)]) if m.group(1) in values else m.group(0),
+                  (template or "").strip() or DEFAULT_ACK)
+
+
+def ack_values(ticket_id, subject, from_name, from_email, cfg, today=None):
+    today = today or datetime.now()
+    first = from_name.split()[0] if (from_name or "").split() else "there"
+    return {"first_name": first, "name": from_name or from_email or "there", "email": from_email or "",
+            "ticket": ticket_id, "subject": subject, "team": cfg.get("mail_from_name") or "IT Help Desk",
+            "school": app_settings.SCHOOL_NAME, "date": f"{today:%B} {today.day}, {today.year}",
+            "weekday": f"{today:%A}"}
+
+
 def send_acknowledgement(client, db, ticket_id, parsed, cfg, mailbox):
-    first = (parsed["from_name"] or "").split()[0] if parsed["from_name"] else "there"
     ticket = _hd().get_ticket(db, ticket_id)
-    body = (f"Hi {first},\n\nThanks, we've received your request and opened ticket #{ticket_id}: "
-            f"{ticket['subject']}\n\nTo add details or photos, reply to this email.\n\n"
-            f"{cfg['mail_from_name'] or 'IT Help Desk'}")
+    body = ack_text(cfg.get("mail_ack_template"),
+                    ack_values(ticket_id, ticket["subject"], parsed.get("from_name"), parsed.get("from_email"), cfg))
     send_on_ticket(client, db, ticket_id, body, cfg, mailbox, "auto", cfg["mail_from_name"])
     db.commit()
 
@@ -510,7 +536,12 @@ def digest_email(db, cfg, mailbox, to):
     lines += ["", f"Help Desk: {link_base(cfg)}/helpdesk/"]
     head = "".join(f'<th style="text-align:left;padding:4px 8px;border-bottom:2px solid #999">{h}</th>' for h in
                    ("#", "Subject", "Requester", "Location", "Devices", "Priority", "Status", "Assigned", "Open for"))
-    html_body = (f'<p style="font-family:sans-serif">{escape(summary)}</p>'
+    school = escape(app_settings.SCHOOL_NAME)
+    html_body = (f'<div style="font-family:sans-serif;background:#121212;color:#fff;padding:10px 14px;'
+                 f'border-bottom:4px solid #a71e2f"><span style="color:#f4b81c;font-weight:bold;letter-spacing:1px;'
+                 f'text-transform:uppercase;font-size:12px">{school}</span><br>'
+                 f'<strong style="font-size:18px">IT Help Desk daily digest</strong></div>'
+                 f'<p style="font-family:sans-serif">{escape(summary)}</p>'
                  + (f'<table style="border-collapse:collapse;font-family:sans-serif;font-size:14px">'
                     f'<tr>{head}</tr>{"".join(rows)}</table>' if rows else "<p>No open tickets.</p>")
                  + f'<p style="font-family:sans-serif"><a href="{escape(link_base(cfg))}/helpdesk/">Open the Help Desk</a></p>')

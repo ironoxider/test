@@ -14,6 +14,7 @@ import app as core
 import app_settings
 import gmail_api
 import mailsync
+import todoist
 
 bp = Blueprint("helpdesk", __name__, url_prefix="/helpdesk")
 
@@ -544,6 +545,11 @@ def email_setup():
                    "mail_from_name": core.clean(f.get("mail_from_name")) or "IT Help Desk",
                    # blank = accept anyone (saved as "", not removed, so it doesn't fall back to the default)
                    "mail_allowed_domain": (core.clean(f.get("mail_allowed_domain")) or "").lstrip("@").lower()}
+        if "mail_ack_template" in f:
+            # Saved as "" when it's the standard message (or reset), so later improvements to it apply.
+            ack = (f.get("mail_ack_template") or "").replace("\r\n", "\n").strip()
+            same = ack == mailsync.DEFAULT_ACK.strip()
+            changes["mail_ack_template"] = "" if f.get("ack_reset") or same else ack
         try:
             changes["mail_interval"] = min(60, max(1, int(f.get("mail_interval", 2))))
         except ValueError:
@@ -590,7 +596,10 @@ def email_setup():
         return redirect(url_for("helpdesk.email_setup"))
     secrets_data = gmail_api.load_secrets(data_dir)
     phone_on = app_settings.load(path).get("allow_network", False)
-    return render_template("helpdesk_email.html", mail=mail_state(),
+    ack_sample = mailsync.ack_values(123, "Projector in W401 won't turn on", "Pat Rivera",
+                                     "privera@thehudsonschool.org", mailsync.config())
+    return render_template("helpdesk_email.html", mail=mail_state(), default_ack=mailsync.DEFAULT_ACK,
+                           ack_placeholders=mailsync.ACK_PLACEHOLDERS, ack_sample=ack_sample,
                            has_client=bool(secrets_data.get("client_id")),
                            connected_as=secrets_data.get("connected_email"), redirect_uri=redirect_uri(),
                            link_base=mailsync.link_base(), network_on=phone_on)
@@ -630,7 +639,7 @@ def board_data(db):
                        " t.created_at LIMIT 15").fetchall()
     light = alerts.state(db)
     return {"counts": counts, "unread": unread, "queue": queue, "mail": mail_state(), "light": light,
-            "siren": alerts.siren_on_board(light)}
+            "siren": alerts.siren_on_board(light), "todo": todoist.board_tasks()}
 
 
 @bp.route("/board")
@@ -642,6 +651,68 @@ def board():
 @bp.route("/board/live")
 def board_live():
     return render_template("helpdesk_board_live.html", **board_data(core.get_db()))
+
+
+@bp.route("/todo/<task_id>/done", methods=["POST"])
+def todo_done(task_id):
+    """Tick a Todoist item on the board."""
+    try:
+        todoist.complete(task_id)
+    except todoist.TodoistError as e:
+        if request.form.get("js"):
+            return {"error": str(e)}, 502
+        flash(f"Couldn't complete that to-do: {e}", "error")
+    if request.form.get("js"):
+        return {"ok": True}
+    return redirect(url_for("helpdesk.board"))
+
+
+@bp.route("/todo", methods=["GET", "POST"])
+def todo_setup():
+    """Connect Todoist and choose which to-dos the board shows."""
+    path = current_app.config["SETTINGS_PATH"]
+    cfg = todoist.config()
+    if request.method == "POST":
+        f = request.form
+        if f.get("action") == "disconnect":
+            app_settings.update(path, todoist_token=None, todoist_enabled=False)
+            todoist.forget()
+            flash("Todoist disconnected; the board no longer shows to-dos.", "success")
+            return redirect(url_for("helpdesk.todo_setup"))
+        token = (f.get("todoist_token") or "").strip()
+        changes = {"todoist_enabled": bool(f.get("todoist_enabled")),
+                   "todoist_project": (f.get("todoist_project") or "").strip(),
+                   "todoist_show": f.get("todoist_show") if f.get("todoist_show") in todoist.SHOW_CHOICES else "today",
+                   "todoist_filter": (f.get("todoist_filter") or "").strip()}
+        try:
+            changes["todoist_limit"] = min(40, max(3, int(f.get("todoist_limit", 12))))
+        except ValueError:
+            pass
+        if changes["todoist_show"] == "filter" and not changes["todoist_filter"]:
+            flash("Type a Todoist filter (for example: today | overdue), or choose another option.", "error")
+            return redirect(url_for("helpdesk.todo_setup"))
+        if token:
+            try:
+                todoist.projects(token)  # check the token works before saving it
+            except todoist.TodoistError as e:
+                flash(f"That token didn't work: {e}", "error")
+                return redirect(url_for("helpdesk.todo_setup"))
+            changes["todoist_token"] = token
+            if not cfg["token"]:
+                changes["todoist_enabled"] = True
+        app_settings.update(path, **changes)
+        todoist.forget()
+        flash("To-do list settings saved.", "success")
+        return redirect(url_for("helpdesk.todo_setup"))
+    project_list, error, preview = [], None, None
+    if cfg["token"]:
+        try:
+            project_list = todoist.projects(cfg["token"])
+            preview = todoist.fetch(cfg)
+        except todoist.TodoistError as e:
+            error = str(e)
+    return render_template("helpdesk_todo.html", cfg=cfg, projects=project_list, error=error,
+                           preview=preview, show_choices=todoist.SHOW_CHOICES)
 
 
 @bp.route("/email/connect", methods=["POST"])

@@ -1,8 +1,11 @@
 # Device Inventory
 
+The Hudson School's device inventory and IT help desk (Hoboken, New Jersey).
+
 A small web app for keeping track of devices: what you have, where it is, who has it,
-and its model and serial numbers. It runs on Flask with a single SQLite file, so there
-is no database server to set up.
+and its model and serial numbers, plus the help desk that turns email to the help desk
+mailbox into tickets. It runs on Flask with a single SQLite file, so there is no database
+server to set up.
 
 ## Features
 
@@ -63,7 +66,9 @@ is no database server to set up.
   is limited to that one mailbox and saved in `gmail.json`, which backups leave out).
   - While Device Inventory runs, the mailbox is checked every few minutes (or click **Check now**). A new email
     from an allowed address becomes a **New** ticket; asset tags and a room it mentions are linked; an optional
-    automatic reply gives the ticket number.
+    automatic reply gives the ticket number. **Its wording is yours to edit** (Email setup → Automatic reply),
+    with placeholders such as `{first_name}`, `{ticket}`, `{subject}`, `{team}` and `{school}` and a live preview;
+    "Use the standard message" puts the original back. The subject stays `Re: [Ticket #N] …` so replies thread.
   - Replies by email (same thread, a reply to one of our emails, or "[Ticket #12]" in the subject) are added to
     their ticket and reopen it. Attachments are listed with a link to the email in Gmail.
   - **Reply by email** on a ticket sends from the mailbox, threaded with the conversation, and can set the ticket
@@ -83,9 +88,15 @@ is no database server to set up.
     Inventory is running with "Allow phones and other computers" on in Settings.
 - **Unread tickets and the live board**: tickets with a new email or reply nobody has opened yet are **unread**:
   marked in the queue (with an Unread tab) and turning the Help Desk count in the menu red. **Live board** (on the
-  Help Desk page) is a full-screen view for a monitor in the IT office: counts, unread tickets and the open queue,
-  refreshing every 10 seconds; new arrivals flash, with an optional chime (click "Sound off" to turn it on).
-  New email appears after the next mailbox check (every 2 minutes by default; 1 minute is the shortest).
+  Help Desk page) is a full-screen view for a monitor in the IT office: the school seal and a large clock, then
+  counts and three columns: **Needs attention** (unread), the **Open queue**, and the **To-do** list from
+  Todoist. It refreshes every 10 seconds; new arrivals flash, with an optional chime (click "Sound off" to turn
+  it on). New email appears after the next mailbox check (every 2 minutes by default; 1 minute is the shortest).
+  - **To-do list from Todoist** (Help Desk → To-do list): paste a Todoist API token (Todoist → Settings →
+    Integrations → Developer) and choose a project and what to show (due today/overdue/undated, only due, all, or
+    any Todoist filter such as `#IT & (today | overdue)`). Overdue items come first, coloured by Todoist priority;
+    tick the circle on the board to complete one in Todoist. The list is fetched once a minute; the token stays
+    on this computer and isn't put in backups. Without Todoist the board keeps two columns.
   - Still to come: running on an always-on campus server with Google sign-in for IT staff (stage 3).
 - **CSV export and import**: export the current filtered view. When you import, a row whose asset
   tag already exists updates that device, and any other row adds a new one.

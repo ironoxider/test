@@ -4,20 +4,27 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="app-version" content="{{ APP_VERSION }}">
-  <title>Help Desk board</title>
+  <title>IT Help Desk · {{ SCHOOL_NAME }}</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body class="board-page{{ ' siren' if siren }}">
   {# The siren: shown while the alert is on and no light is connected (Help Desk → Office light). #}
   <div class="siren-sweep" aria-hidden="true"></div>
   <header class="board-head">
-    <h1>Help Desk</h1>
+    <div class="board-brand">
+      <img src="{{ url_for('static', filename='hudson-logo.png') }}" alt="{{ SCHOOL_NAME }} seal" width="84" height="84">
+      <div><div class="board-school">{{ SCHOOL_NAME }}</div><h1>IT Help Desk</h1></div>
+    </div>
     <div class="siren-beacon" aria-hidden="true"><div class="siren-dome"><div class="siren-beam"></div></div><div class="siren-base"></div></div>
-    <div class="board-tools">
-      <span id="board-clock" class="board-clock"></span>
-      <span id="board-status" class="muted"></span>
-      <button type="button" id="board-sound" class="secondary small">Sound off</button>
-      <a class="button secondary small" href="{{ url_for('helpdesk.queue') }}">Open the queue</a>
+    <div class="board-when">
+      <div id="board-time" class="board-time"></div>
+      <div id="board-date" class="board-date"></div>
+      <div class="board-tools">
+        <span id="board-status" class="muted"></span>
+        <button type="button" id="board-sound" class="secondary small">Sound off</button>
+        <a class="button secondary small" href="{{ url_for('helpdesk.queue') }}">Queue</a>
+      </div>
     </div>
   </header>
   {% include "helpdesk_board_live.html" %}
@@ -62,10 +69,29 @@
   }
   function tick() {
     const now = new Date();
-    document.getElementById("board-clock").textContent =
-      now.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }) + " · " +
-      now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    document.getElementById("board-time").textContent = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    document.getElementById("board-date").textContent =
+      now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
   }
+  // Ticking a to-do: done in Todoist right away, without leaving the board.
+  document.addEventListener("submit", async function (event) {
+    const form = event.target.closest(".todo-done");
+    if (!form) return;
+    event.preventDefault();
+    const item = form.closest(".todo-item");
+    item.classList.add("done");
+    try {
+      const body = new FormData(form);
+      body.set("js", "1");
+      const resp = await fetch(form.action, { method: "POST", body: body });
+      if (!resp.ok) throw new Error((await resp.json().catch(function () { return {}; })).error || resp.status);
+      setTimeout(function () { item.remove(); }, 600);
+    } catch (e) {
+      item.classList.remove("done");
+      statusEl.textContent = "Couldn't tick that off: " + e.message;
+      statusEl.classList.add("error-text");
+    }
+  });
   async function refresh() {
     try {
       const resp = await fetch(LIVE_URL, { cache: "no-store" });
@@ -90,7 +116,7 @@
     }
   }
   tick();
-  setInterval(tick, 15000);
+  setInterval(tick, 5000);
   setInterval(refresh, REFRESH_MS);
 })();
 </script>

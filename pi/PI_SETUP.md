@@ -141,6 +141,10 @@ echo "/home/pi/device-inventory/pi/start-board.sh &" >> ~/.config/labwc/autostar
    `[autostart]` in `~/.config/wayfire.ini` instead.)
 3. Restart (`sudo reboot`). The board opens full-screen. Click **Sound off** once if you want the chime.
    Press **Alt+F4** to close it.
+4. Optional: to show your Todoist to-do list as a third column, open **Help Desk → To-do list** on the computer
+   running Device Inventory (it's a setup page, so it only opens there) and paste your Todoist API token. The Pi
+   needs internet access through the server only; the server fetches the list. You can tick items off on the
+   board with a mouse or touch screen.
 
 ## 6. The office light and button
 

@@ -4,12 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="app-version" content="{{ APP_VERSION }}">
-  <title>{% block title %}Device Inventory{% endblock %}</title>
+  <title>{% block title %}Device Inventory{% endblock %} · {{ SCHOOL_NAME }}</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}">Device Inventory</a>
+    <a class="brand" href="{{ url_for('index') }}">
+      <img src="{{ url_for('static', filename='hudson-logo.png') }}" alt="" width="44" height="44">
+      <span><span class="brand-school">{{ SCHOOL_NAME }}</span><span class="brand-app">Device Inventory &amp; IT Help Desk</span></span></a>
     <nav>
       <a href="{{ url_for('helpdesk.queue', view='unread') if UNREAD_TICKETS else url_for('helpdesk.queue') }}">Help Desk{% if OPEN_TICKETS %}
         <span class="nav-count{{ ' unread' if UNREAD_TICKETS }}" title="{{ OPEN_TICKETS }} open{% if UNREAD_TICKETS %}, {{ UNREAD_TICKETS }} unread{% endif %}">{{ OPEN_TICKETS }}</span>{% endif %}</a>
@@ -27,6 +30,6 @@
     {% endfor %}
     {% block content %}{% endblock %}
   </main>
-  <footer class="app-footer">Device Inventory version {{ APP_VERSION }}</footer>
+  <footer class="app-footer">{{ SCHOOL_NAME }} · Hoboken, New Jersey · Device Inventory version {{ APP_VERSION }}</footer>
 </body>
 </html>

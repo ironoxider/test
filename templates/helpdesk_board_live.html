@@ -16,9 +16,9 @@
     <div class="board-count {{ 'hot' if counts.urgent }}"><strong>{{ counts.urgent or 0 }}</strong><span>High / urgent</span></div>
     <div class="board-count"><strong>{{ counts.closed_today or 0 }}</strong><span>Closed today</span></div>
   </section>
-  <div class="board-columns">
-    <section>
-      <h2>Unread <span class="muted">new tickets and replies nobody has opened</span></h2>
+  <div class="board-columns{{ ' with-todo' if todo.enabled }}">
+    <section class="board-col">
+      <h2>Needs attention <span class="muted">unread tickets and replies</span></h2>
       {% for t in unread %}
       <a class="board-ticket unread" data-id="{{ t.id }}" href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">
         <div class="bt-top"><span class="bt-num">#{{ t.id }}</span>
@@ -30,10 +30,10 @@
       </a>
       {% else %}<p class="board-empty">All caught up.</p>{% endfor %}
     </section>
-    <section>
+    <section class="board-col">
       <h2>Open queue <span class="muted">by priority, oldest first</span></h2>
       {% for t in queue %}
-      <a class="board-ticket" href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">
+      <a class="board-ticket compact" href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">
         <div class="bt-top"><span class="bt-num">#{{ t.id }}</span>
           <span class="badge priority-{{ t.priority|lower }}">{{ t.priority }}</span>
           <span class="badge ticket-{{ t.status|lower }}">{{ t.status }}</span>
@@ -44,6 +44,23 @@
       </a>
       {% else %}<p class="board-empty">No other open tickets.</p>{% endfor %}
     </section>
+    {% if todo.enabled %}
+    <section class="board-col board-todo">
+      <h2>To-do <span class="muted">from Todoist</span></h2>
+      {% if todo.error %}<p class="todo-error">{{ todo.error }}</p>{% endif %}
+      {% for t in todo.tasks %}
+      <div class="todo-item p{{ t.priority }}{{ ' overdue' if t.overdue }}" data-todo="{{ t.id }}">
+        <form method="post" action="{{ url_for('helpdesk.todo_done', task_id=t.id) }}" class="todo-done">
+          <button type="submit" class="todo-check" title="Mark done in Todoist" aria-label="Done: {{ t.content }}"></button></form>
+        <div class="todo-body">
+          <div class="todo-text">{{ t.content }}</div>
+          {% if t.due_text or t.labels %}<div class="todo-meta">{% if t.due_text %}<span class="todo-due">{{ t.due_text }}{% if t.time %} {{ t.time }}{% endif %}{% if t.recurring %} ↻{% endif %}</span>{% endif %}{% for l in t.labels %} <span class="todo-label">@{{ l }}</span>{% endfor %}</div>{% endif %}
+        </div>
+      </div>
+      {% else %}{% if not todo.error %}<p class="board-empty">Nothing on the list.</p>{% endif %}{% endfor %}
+      {% if todo.more %}<p class="muted">+ {{ todo.more }} more in Todoist</p>{% endif %}
+    </section>
+    {% endif %}
   </div>
   <p class="board-foot muted">
     {% if mail.connected and mail.mail_enabled %}Email to {{ mail.mailbox }} is checked every {{ mail.mail_interval }} min{% if mail.last_check %}, last {{ mail.last_check|ago }}{% endif %}.

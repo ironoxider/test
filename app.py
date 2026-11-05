@@ -153,6 +153,7 @@ def create_app(test_config=None):
         device_label=device_label,
         NEW_OPTION=NEW_OPTION,
         APP_VERSION=app_settings.APP_VERSION,
+        SCHOOL_NAME=app_settings.SCHOOL_NAME,
         ai_enabled=lambda: photo_extract.is_configured(saved_api_key()),
         today=lambda: date.today().isoformat(),
         lifespan_years=lambda: int(app_setting("lifespan_years", DEFAULT_LIFESPAN_YEARS)),
@@ -412,7 +413,8 @@ def is_this_computer(addr):
 
 # Pages that can only be opened on the computer running the app.
 LOCAL_ONLY = {"settings", "backup_download", "backup_now", "backup_auto_now", "helpdesk.email_setup", "helpdesk.light_setup",
-              "helpdesk.email_connect", "helpdesk.email_oauth", "helpdesk.email_disconnect"}
+              "helpdesk.email_connect", "helpdesk.email_oauth", "helpdesk.email_disconnect",
+              "helpdesk.todo_setup"}
 
 
 def light_key_ok():
@@ -680,6 +682,7 @@ def backup_bytes(db_path, settings_file):
         settings = app_settings.load(settings_file)
         settings.pop("anthropic_api_key", None)
         settings.pop("secret_key", None)
+        settings.pop("todoist_token", None)
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             z.write(copy_path, "inventory.db")

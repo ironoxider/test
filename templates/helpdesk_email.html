@@ -41,13 +41,31 @@
       <input type="number" name="mail_interval" min="1" max="60" value="{{ mail.mail_interval }}"></label>
     <label class="checkbox wide"><input type="checkbox" name="mail_enabled" value="1" {% if mail.mail_enabled %}checked{% endif %}>
       Check this mailbox and create tickets from new email</label>
-    <label class="checkbox wide"><input type="checkbox" name="mail_auto_reply" value="1" {% if mail.mail_auto_reply %}checked{% endif %}>
-      Send an automatic reply with the ticket number when a new ticket is created</label>
     <label class="wide">Google Cloud OAuth client file (.json, step 4)
       <input type="file" name="client_file" accept=".json,application/json"></label>
     <p class="wide muted small-note">{% if has_client %}A client file is saved. Upload a new one only to replace it.{% else %}No client file yet.{% endif %}
       Email from other addresses, automatic replies and bounces are labelled "Help Desk/Skipped" in Gmail
       instead of becoming tickets (replies on an existing ticket are always accepted).</p>
+  </fieldset>
+  <fieldset id="auto-reply">
+    <legend>Automatic reply</legend>
+    <label class="checkbox wide"><input type="checkbox" name="mail_auto_reply" value="1" {% if mail.mail_auto_reply %}checked{% endif %}>
+      Send an automatic reply with the ticket number when a new ticket is created</label>
+    <label class="wide">Message
+      <textarea name="mail_ack_template" id="ack-template" rows="8" spellcheck="true">{{ mail.mail_ack_template or default_ack }}</textarea></label>
+    <div class="wide ack-help">
+      <p class="muted small-note">The subject is always <code>Re: [Ticket #123] (their subject)</code>, so replies land on the
+        right ticket. These words in braces are filled in for each ticket:</p>
+      <ul class="placeholders">{% for name, what in ack_placeholders.items() %}
+        <li><button type="button" class="chip" data-insert="{{ '{' ~ name ~ '}' }}" title="Insert at the cursor"><code>{{ '{' ~ name ~ '}' }}</code></button> {{ what }}</li>{% endfor %}
+      </ul>
+    </div>
+    <div class="wide">
+      <p class="muted small-note">Preview, for a sample ticket from {{ ack_sample.name }}:</p>
+      <pre class="ack-preview" id="ack-preview"></pre>
+      <button type="submit" name="ack_reset" value="1" class="secondary small"
+        onclick="return confirm('Go back to the standard message?');">Use the standard message</button>
+    </div>
   </fieldset>
   <fieldset id="team">
     <legend>IT team</legend>
@@ -114,4 +132,29 @@
   If your Workspace limits third-party apps, allow this app under Admin console → Security → API controls →
   App access control. Sign-in returns to <code>{{ redirect_uri }}</code>, so connect from the computer that runs
   Device Inventory. Disconnect here, or remove access at myaccount.google.com/permissions while signed in as the mailbox.</p>
+<script>
+(function () {
+  "use strict";
+  const sample = {{ ack_sample|tojson }};
+  const fallback = {{ default_ack|tojson }};
+  const box = document.getElementById("ack-template"), out = document.getElementById("ack-preview");
+  function show() {
+    const text = box.value.trim() || fallback;
+    out.textContent = text.replace(/\{(\w+)\}/g, function (all, name) {
+      return Object.prototype.hasOwnProperty.call(sample, name) ? String(sample[name]) : all;
+    });
+  }
+  box.addEventListener("input", show);
+  document.querySelectorAll("[data-insert]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const word = btn.dataset.insert, at = box.selectionStart ?? box.value.length, end = box.selectionEnd ?? at;
+      box.value = box.value.slice(0, at) + word + box.value.slice(end);
+      box.focus();
+      box.selectionStart = box.selectionEnd = at + word.length;
+      show();
+    });
+  });
+  show();
+})();
+</script>
 {% endblock %}

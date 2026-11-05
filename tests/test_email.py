@@ -486,7 +486,7 @@ def test_board_shows_unread_and_queue(app, client, gmail):
     check(client)
     client.get("/helpdesk/2")  # read
     page = text(client.get("/helpdesk/board"))
-    assert "Help Desk board" in page and "board/live" in page
+    assert "IT Help Desk" in page and "The Hudson School" in page and "board/live" in page
     live = text(client.get("/helpdesk/board/live"))
     assert 'data-unread="1"' in live and "New ticket" in live and "Printer jam" in live
     assert "Projector in W401" in live.split("Open queue")[0]   # unread column
