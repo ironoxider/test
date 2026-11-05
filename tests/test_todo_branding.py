@@ -111,7 +111,7 @@ def test_email_page_shows_editor_and_preview_data(client):
 def test_branding_on_pages_and_assets(app, client):
     page = text(client.get("/"))
     assert "The Hudson School" in page and "hudson-logo.png" in page and "favicon.png" in page
-    assert "Device Inventory version 2.6" in page
+    assert "Device Inventory version 2.7" in page
     for name in ("hudson-logo.png", "favicon.png"):
         resp = client.get(f"/static/{name}")
         assert resp.status_code == 200 and resp.data[:8] == b"\x89PNG\r\n\x1a\n"
@@ -290,3 +290,18 @@ def test_simplify_due_times_and_text():
     assert todoist.due_text(date(2026, 11, 4), today) == "Yesterday"
     assert todoist.due_text(date(2026, 11, 20), today) == "Fri Nov 20"
     assert todoist.simplify({"id": 1, "content": "x", "due": {"date": "garbage"}}, today)["due"] is None
+
+
+def test_board_columns_hold_long_lists_for_scrolling(app, client):
+    import sqlite3
+    db = sqlite3.connect(app.config["DATABASE"])
+    for i in range(70):
+        db.execute("INSERT INTO tickets (subject, requester_email, priority, status, unread) VALUES (?, ?, 'Normal', 'Open', ?)",
+                   (f"Ticket number {i}", "s@thehudsonschool.org", 1 if i < 30 else 0))
+    db.commit()
+    db.close()
+    live = text(client.get("/helpdesk/board/live"))
+    assert live.count('class="col-scroll"') == 2 and 'data-col="unread"' in live and 'data-col="queue"' in live
+    assert live.count("board-ticket unread") == 30 and live.count("board-ticket compact") == 40
+    board = text(client.get("/helpdesk/board"))
+    assert 'id="board-scroll"' in board and "setupScrollers" in board

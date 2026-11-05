@@ -44,7 +44,8 @@
       <code>#IT &amp; (today | overdue | no date)</code>, <code>@hardware</code> or <code>assigned to: me</code>. With a filter, the project choice
       above is ignored (put <code>#Project</code> in the filter instead).</p>
     <label>Show at most
-      <input type="number" name="todoist_limit" min="3" max="40" value="{{ cfg.todoist_limit }}"></label>
+      <input type="number" name="todoist_limit" min="3" max="200" value="{{ cfg.todoist_limit }}"></label>
+    <p class="wide muted small-note">When there are more than fit on the screen, the column scrolls through them slowly.</p>
   </fieldset>
   <div class="actions"><button type="submit">Save</button></div>
 </form>

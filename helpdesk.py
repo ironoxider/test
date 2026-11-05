@@ -634,9 +634,9 @@ def board_data(db):
                " (SELECT m.created_at FROM ticket_messages m WHERE m.ticket_id = t.id AND m.kind IN"
                "  ('description', 'incoming') ORDER BY m.id DESC LIMIT 1) AS last_at"
                " FROM tickets t LEFT JOIN locations l ON l.id = t.location_id")
-    unread = db.execute(columns + " WHERE t.unread = 1 ORDER BY t.updated_at DESC LIMIT 12").fetchall()
+    unread = db.execute(columns + " WHERE t.unread = 1 ORDER BY t.updated_at DESC LIMIT 50").fetchall()
     queue = db.execute(columns + f" WHERE t.status != 'Closed' AND t.unread = 0 ORDER BY {PRIORITY_RANK},"
-                       " t.created_at LIMIT 15").fetchall()
+                       " t.created_at LIMIT 100").fetchall()
     light = alerts.state(db)
     return {"counts": counts, "unread": unread, "queue": queue, "mail": mail_state(), "light": light,
             "siren": alerts.siren_on_board(light), "todo": todoist.board_tasks()}
@@ -685,7 +685,7 @@ def todo_setup():
                    "todoist_show": f.get("todoist_show") if f.get("todoist_show") in todoist.SHOW_CHOICES else "today",
                    "todoist_filter": (f.get("todoist_filter") or "").strip()}
         try:
-            changes["todoist_limit"] = min(40, max(3, int(f.get("todoist_limit", 12))))
+            changes["todoist_limit"] = min(200, max(3, int(f.get("todoist_limit", 50))))
         except ValueError:
             pass
         if changes["todoist_show"] == "filter" and not changes["todoist_filter"]:

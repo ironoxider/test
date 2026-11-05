@@ -20,7 +20,7 @@ import app_settings
 
 API = "https://api.todoist.com/api/v1"
 DEFAULTS = {"todoist_enabled": False, "todoist_project": "", "todoist_show": "today",
-            "todoist_filter": "", "todoist_limit": 12}
+            "todoist_filter": "", "todoist_limit": 50}
 SHOW_CHOICES = {"today": "Due today, overdue, or with no date",
                 "due": "Due today or overdue only",
                 "all": "Everything",
@@ -155,7 +155,7 @@ def board_tasks():
                 tasks, error = (_cache["tasks"] if _cache["key"] == key else []), str(e)
             _cache.update(key=key, at=time.time(), tasks=tasks, error=error)
         tasks, error = list(_cache["tasks"]), _cache["error"]
-    limit = max(1, int(cfg["todoist_limit"] or 12))
+    limit = max(1, int(cfg["todoist_limit"] or 50))
     return {"enabled": True, "tasks": tasks[:limit], "more": max(0, len(tasks) - limit), "error": error}
 
 

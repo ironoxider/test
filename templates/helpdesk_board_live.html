@@ -19,6 +19,7 @@
   <div class="board-columns{{ ' with-todo' if todo.enabled }}">
     <section class="board-col">
       <h2>Needs attention <span class="muted">unread tickets and replies</span></h2>
+      <div class="col-scroll" data-col="unread"><div class="col-track">
       {% for t in unread %}
       <a class="board-ticket unread" data-id="{{ t.id }}" href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">
         <div class="bt-top"><span class="bt-num">#{{ t.id }}</span>
@@ -29,9 +30,11 @@
         <div class="bt-meta">{{ t.requester_name or t.requester_email or '' }}{% if t.location %} · {{ t.location }}{% endif %}{% if t.devices %} · {{ t.devices }}{% endif %}{% if t.assigned_to %} · {{ t.assigned_to }}{% endif %}</div>
       </a>
       {% else %}<p class="board-empty">All caught up.</p>{% endfor %}
+      </div></div>
     </section>
     <section class="board-col">
       <h2>Open queue <span class="muted">by priority, oldest first</span></h2>
+      <div class="col-scroll" data-col="queue"><div class="col-track">
       {% for t in queue %}
       <a class="board-ticket compact" href="{{ url_for('helpdesk.view', ticket_id=t.id) }}">
         <div class="bt-top"><span class="bt-num">#{{ t.id }}</span>
@@ -43,11 +46,13 @@
         <div class="bt-meta">{{ t.requester_name or t.requester_email or '' }}{% if t.location %} · {{ t.location }}{% endif %}{% if t.devices %} · {{ t.devices }}{% endif %}</div>
       </a>
       {% else %}<p class="board-empty">No other open tickets.</p>{% endfor %}
+      </div></div>
     </section>
     {% if todo.enabled %}
     <section class="board-col board-todo">
       <h2>To-do <span class="muted">from Todoist</span></h2>
       {% if todo.error %}<p class="todo-error">{{ todo.error }}</p>{% endif %}
+      <div class="col-scroll" data-col="todo"><div class="col-track">
       {% for t in todo.tasks %}
       <div class="todo-item p{{ t.priority }}{{ ' overdue' if t.overdue }}" data-todo="{{ t.id }}">
         <form method="post" action="{{ url_for('helpdesk.todo_done', task_id=t.id) }}" class="todo-done">
@@ -59,6 +64,7 @@
       </div>
       {% else %}{% if not todo.error %}<p class="board-empty">Nothing on the list.</p>{% endif %}{% endfor %}
       {% if todo.more %}<p class="muted">+ {{ todo.more }} more in Todoist</p>{% endif %}
+      </div></div>
     </section>
     {% endif %}
   </div>

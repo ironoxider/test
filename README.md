@@ -90,8 +90,11 @@ server to set up.
   marked in the queue (with an Unread tab) and turning the Help Desk count in the menu red. **Live board** (on the
   Help Desk page) is a full-screen view for a monitor in the IT office: the school seal and a large clock, then
   counts and three columns: **Needs attention** (unread), the **Open queue**, and the **To-do** list from
-  Todoist. It refreshes every 10 seconds; new arrivals flash, with an optional chime (click "Sound off" to turn
-  it on). New email appears after the next mailbox check (every 2 minutes by default; 1 minute is the shortest).
+  Todoist. On a large screen each column is a fixed box, and **a column with more than fits scrolls through it
+  slowly and loops**, pausing at the top of each pass and while the mouse is over it (a resting pointer doesn't
+  count); a newly arrived ticket brings Needs attention back to the top. **Scrolling** in the header switches
+  between normal, fast, slow and off (remembered on that screen). It refreshes every 10 seconds without losing its
+  place; new arrivals flash, with an optional chime (click "Sound off" to turn it on). New email appears after the next mailbox check (every 2 minutes by default; 1 minute is the shortest).
   - **To-do list from Todoist** (Help Desk → To-do list): paste a Todoist API token (Todoist → Settings →
     Integrations → Developer) and choose a project and what to show (due today/overdue/undated, only due, all, or
     any Todoist filter such as `#IT & (today | overdue)`). Overdue items come first, coloured by Todoist priority;

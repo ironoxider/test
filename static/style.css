@@ -231,6 +231,21 @@ th, td { padding: 8px 8px; }
   .board-columns.with-todo .board-todo { grid-column: 1 / -1; } }
 @media (max-width: 900px) { .board-columns, .board-columns.with-todo { grid-template-columns: minmax(0, 1fr); } }
 .board-columns h2 { margin: 4px 0 10px; padding-bottom: 4px; border-bottom: 3px solid var(--hudson-gold); }
+/* Columns as fixed boxes that scroll through what doesn't fit (the script moves .col-track). */
+.col-track { display: flow-root; }
+.col-track .clone-gap { height: 18px; border-top: 2px dashed var(--border); margin-top: 8px; }
+@media (min-width: 901px) {
+  body.board-page { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  body.board-page #live { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .board-columns { flex: 1; min-height: 0; grid-auto-rows: minmax(0, 1fr); }
+  .board-col { display: flex; flex-direction: column; min-height: 0; }
+  .col-scroll { flex: 1; min-height: 0; overflow: hidden; }
+  .col-scroll.moving { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 28px), transparent); }
+  .col-scroll.moving .col-track { will-change: transform; }
+  body.scroll-off .col-scroll { overflow-y: auto; }
+  .board-foot { margin: 8px 0 0; }
+}
 .board-ticket.compact { padding: 8px 12px; }
 .board-ticket.compact .bt-subject { font-size: 1.1em; }
 /* To-do items from Todoist; the flag colours follow Todoist's priorities (p1 = priority 4). */

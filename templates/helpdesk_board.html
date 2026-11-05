@@ -22,6 +22,7 @@
       <div id="board-date" class="board-date"></div>
       <div class="board-tools">
         <span id="board-status" class="muted"></span>
+        <button type="button" id="board-scroll" class="secondary small" title="How fast long columns scroll">Scrolling</button>
         <button type="button" id="board-sound" class="secondary small">Sound off</button>
         <a class="button secondary small" href="{{ url_for('helpdesk.queue') }}">Queue</a>
       </div>
@@ -67,6 +68,98 @@
       });
     } catch (e) { /* no audio */ }
   }
+  // ---- Scrolling columns: a column with more than fits scrolls slowly and loops (a copy of its items
+  // follows the originals). It pauses at the top of each loop and while the mouse is over it.
+  const SPEEDS = { slow: 18, normal: 32, fast: 55, off: 0 };  // pixels per second
+  const ORDER = ["normal", "fast", "slow", "off"];
+  const scrollBtn = document.getElementById("board-scroll");
+  let mode = null;
+  try { mode = localStorage.getItem("board-scroll"); } catch (e) { /* storage blocked */ }
+  if (!SPEEDS.hasOwnProperty(mode)) {
+    mode = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "off" : "normal";
+  }
+  let scrollers = [];
+  const PAUSE_TOP_MS = 4000, PAUSE_TOUCH_MS = 12000, MOUSE_IDLE_MS = 15000;
+  // Hovering pauses a column, but not a mouse pointer left resting on the screen of the Pi.
+  let mouseMovedAt = -Infinity;
+  document.addEventListener("mousemove", function () { mouseMovedAt = performance.now(); });
+
+  function showScroll() {
+    scrollBtn.textContent = mode === "off" ? "Scrolling off" : "Scrolling: " + mode;
+    document.body.classList.toggle("scroll-off", mode === "off");
+  }
+  scrollBtn.addEventListener("click", function () {
+    mode = ORDER[(ORDER.indexOf(mode) + 1) % ORDER.length];
+    try { localStorage.setItem("board-scroll", mode); } catch (e) { /* ignore */ }
+    showScroll();
+    setupScrollers(document.getElementById("live"), savedOffsets());
+  });
+
+  function savedOffsets() {
+    const saved = {};
+    scrollers.forEach(function (sc) { saved[sc.key] = { offset: sc.offset, pausedUntil: sc.pausedUntil }; });
+    return saved;
+  }
+  function setupScrollers(root, saved) {
+    scrollers = [];
+    root.querySelectorAll(".col-scroll").forEach(function (box) {
+      const track = box.querySelector(".col-track");
+      track.querySelectorAll(".clone, .clone-gap").forEach(function (el) { el.remove(); });
+      track.style.transform = "";
+      box.classList.remove("moving");
+      box.scrollTop = 0;
+      const height = track.offsetHeight;
+      // Only on a big screen (the boxes have a fixed height there), and only if it doesn't fit.
+      if (mode === "off" || getComputedStyle(box).overflowY !== "hidden" || height <= box.clientHeight + 2) return;
+      const gap = document.createElement("div");
+      gap.className = "clone-gap";
+      gap.setAttribute("aria-hidden", "true");
+      track.appendChild(gap);
+      const loop = gap.offsetTop + gap.offsetHeight - track.firstElementChild.offsetTop;
+      Array.from(track.children).forEach(function (el) {
+        if (el === gap || el.classList.contains("clone")) return;
+        const copy = el.cloneNode(true);
+        copy.classList.add("clone");
+        copy.setAttribute("aria-hidden", "true");
+        copy.querySelectorAll("a, button").forEach(function (c) { c.tabIndex = -1; });
+        track.appendChild(copy);
+      });
+      const before = (saved || {})[box.dataset.col];
+      const sc = { key: box.dataset.col, box: box, track: track, loop: loop, hover: false,
+                   offset: before ? before.offset % loop : 0,
+                   pausedUntil: before ? before.pausedUntil : performance.now() + PAUSE_TOP_MS };
+      box.classList.add("moving");
+      box.addEventListener("mouseenter", function () { sc.hover = true; });
+      box.addEventListener("mouseleave", function () { sc.hover = false; });
+      box.addEventListener("pointerdown", function (e) {
+        if (e.pointerType !== "mouse") sc.pausedUntil = performance.now() + PAUSE_TOUCH_MS;
+      });
+      track.style.transform = "translate3d(0," + (-sc.offset) + "px,0)";
+      scrollers.push(sc);
+    });
+  }
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(now - last, 100);  // after a hidden tab, don't jump
+    last = now;
+    const speed = SPEEDS[mode];
+    scrollers.forEach(function (sc) {
+      if (!speed || now < sc.pausedUntil || (sc.hover && now - mouseMovedAt < MOUSE_IDLE_MS)) return;
+      sc.offset += speed * dt / 1000;
+      if (sc.offset >= sc.loop) {
+        sc.offset -= sc.loop;
+        sc.pausedUntil = now + PAUSE_TOP_MS;
+      }
+      sc.track.style.transform = "translate3d(0," + (-sc.offset) + "px,0)";
+    });
+    requestAnimationFrame(frame);
+  }
+  let resizeTimer = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { setupScrollers(document.getElementById("live"), savedOffsets()); }, 300);
+  });
+
   function tick() {
     const now = new Date();
     document.getElementById("board-time").textContent = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -85,7 +178,10 @@
       body.set("js", "1");
       const resp = await fetch(form.action, { method: "POST", body: body });
       if (!resp.ok) throw new Error((await resp.json().catch(function () { return {}; })).error || resp.status);
-      setTimeout(function () { item.remove(); }, 600);
+      setTimeout(function () {
+        document.querySelectorAll('.todo-item[data-todo="' + item.dataset.todo + '"]').forEach(function (el) { el.remove(); });
+        setupScrollers(document.getElementById("live"), savedOffsets());
+      }, 600);
     } catch (e) {
       item.classList.remove("done");
       statusEl.textContent = "Couldn't tick that off: " + e.message;
@@ -100,11 +196,15 @@
       holder.innerHTML = await resp.text();
       const fresh = holder.firstElementChild;
       const arrived = ids(fresh).filter(function (id) { return !seen.has(id); });
+      const offsets = savedOffsets();
+      if (arrived.length) delete offsets.unread;  // back to the top, where the new one is
       document.getElementById("live").replaceWith(fresh);
+      setupScrollers(fresh, offsets);  // carry on from the same place
       document.body.classList.toggle("siren", fresh.dataset.siren === "1");  // outside #live, so it keeps spinning
       arrived.forEach(function (id) {
-        const card = fresh.querySelector('.board-ticket[data-id="' + id + '"]');
-        if (card) card.classList.add("just-arrived");
+        fresh.querySelectorAll('.board-ticket[data-id="' + id + '"]').forEach(function (card) {
+          card.classList.add("just-arrived");
+        });
       });
       if (arrived.length && sound) chime();
       seen = new Set(ids(fresh));
@@ -116,6 +216,9 @@
     }
   }
   tick();
+  showScroll();
+  setupScrollers(document.getElementById("live"), null);
+  requestAnimationFrame(frame);
   setInterval(tick, 5000);
   setInterval(refresh, REFRESH_MS);
 })();
