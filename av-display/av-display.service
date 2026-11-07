@@ -1,0 +1,19 @@
+# Starts AV Display at power-on, full screen on the HDMI output. Installed by install.sh.
+[Unit]
+Description=AV Display slideshow
+After=local-fs.target systemd-user-sessions.service
+# Take over the first screen instead of showing a login prompt there.
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+[Service]
+ExecStart=/usr/local/bin/av-display
+Restart=always
+RestartSec=3
+StandardInput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target
