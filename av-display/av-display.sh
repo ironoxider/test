@@ -50,11 +50,16 @@ stop_image() {
 show_image() {
     local old="$FBI_PID"
     # -T 1: draw on the first console  -a: fit to screen  --noverbose: no file name bar
-    fbi -T 1 -a --noverbose --nocomments "$1" </dev/null >/dev/null 2>&1 &
+    # fbi must read from the screen's console: with no input (</dev/null) it reads that as
+    # "quit" and closes straight away, leaving a black screen.
+    fbi -T 1 -a --noverbose --nocomments "$1" <"$TTY" >/dev/null 2>&1 &
     FBI_PID=$!
     # Let the new photo appear before closing the old one, to avoid a black flash.
     sleep 1
     [ -n "$old" ] && kill "$old" 2>/dev/null && wait "$old" 2>/dev/null
+    if ! kill -0 "$FBI_PID" 2>/dev/null; then
+        log "fbi closed right after opening $1 (unreadable photo, or no access to $TTY)"
+    fi
     sleep $(( IMAGE_SECONDS > 1 ? IMAGE_SECONDS - 1 : 1 ))
 }
 

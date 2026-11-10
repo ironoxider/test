@@ -12,6 +12,9 @@ Restart=always
 RestartSec=3
 StandardInput=tty
 TTYPath=/dev/tty1
+# Messages go to the log (journalctl -u av-display), not onto the screen.
+StandardOutput=journal
+StandardError=journal
 TTYReset=yes
 TTYVHangup=yes
 
