@@ -51,10 +51,50 @@ To set up more Pis, either repeat this, or set up one and copy its SD card (Win3
 - **USB stick (easiest):** put the files in a folder named `slideshow` on a USB stick and plug it in.
   While it's plugged in, the Pi shows the stick instead of `/home/pi/media`. Pull it out to go back.
   New files are picked up at the end of the current pass.
-- **Over the network:** copy files into `/home/pi/media` with WinSCP / Cyberduck / `scp`
+- **Network folder:** point the Pi at a shared folder on a server (see *Network folder* below). Every
+  15 minutes it copies any changes onto its SD card and shows them. Several Pis can share one folder.
+- **Copy to the Pi directly:** copy files into `/home/pi/media` with WinSCP / Cyberduck / `scp`
   (host `pi@<pi-name>.local`). Changes show on the next pass.
 - **Order:** files play in name order, including sub-folders. Number them: `01-welcome.jpg`,
   `02-open-house.mp4`, ... Or set `SHUFFLE=yes`.
+
+## Network folder
+
+The Pi can show a shared folder from a Windows server or NAS (an SMB share, the kind you open as
+`\\server\share`). It **copies** the folder onto its SD card and plays the copy. That keeps videos smooth
+on a B+, whose network is slow, and the slideshow keeps going if the server or network is down.
+Only changed files are copied, and files deleted from the share are deleted from the Pi too.
+
+1. On the server, share the folder. A **read-only account** just for the displays is best
+   (or allow guest access).
+2. On the Pi, `sudo nano /etc/av-display.conf` and fill in the network section:
+
+   ```
+   NETWORK_SHARE="//fileserver/Media/Lobby TV"
+   NETWORK_USER=avdisplay
+   NETWORK_PASSWORD=the-password
+   ```
+
+   Turn the backslashes in `\\fileserver\Media\Lobby TV` into forward slashes, and keep the quotes if the
+   path has spaces. Use the server's IP address (`//10.0.0.5/Media/Lobby TV`) if the name doesn't work.
+3. Test it. This copies the folder now and lists what arrived, or says what went wrong:
+
+   ```bash
+   sudo av-display --sync
+   ```
+
+4. `sudo systemctl restart av-display`. It shows the network copy from then on, and checks for
+   changes every `NETWORK_SYNC_MINUTES`.
+
+If the test fails:
+- *Permission denied*: wrong user name or password; on a domain, also set `NETWORK_DOMAIN`.
+- *No such file or directory*: the server, share or folder name is wrong.
+- *Host is down* / *Operation not supported* on an older NAS: add `NETWORK_OPTIONS=vers=2.0`
+  (or `vers=1.0` for very old ones).
+- *SD card full*: the copy has to fit on the card. Keep the folder smaller than the card's free
+  space (`df -h /` shows it), or use a bigger card.
+
+A plugged-in USB stick still takes priority over the network folder.
 
 ## Settings
 
@@ -68,6 +108,13 @@ Edit with `sudo nano /etc/av-display.conf`, then `sudo systemctl restart av-disp
 | `AUDIO` | `hdmi` | Video sound: `hdmi`, `local` (headphone jack), `both` |
 | `USE_USB` | `yes` | Show a plugged-in USB stick instead |
 | `USB_FOLDER` | `slideshow` | Folder on the stick (the whole stick if it isn't there) |
+| `NETWORK_SHARE` | *(empty)* | Network folder, e.g. `"//server/share/folder"`; empty = off |
+| `NETWORK_USER`, `NETWORK_PASSWORD` | *(empty)* | Account for the share; empty user = guest |
+| `NETWORK_DOMAIN` | *(empty)* | Windows domain, if needed |
+| `NETWORK_OPTIONS` | *(empty)* | Extra mount options, e.g. `vers=2.0` for an old NAS |
+| `NETWORK_SYNC_MINUTES` | `15` | How often to check the share for changes |
+
+`/etc/av-display.conf` can only be read by root, since it may hold the share's password.
 
 ## Converting videos for a B+
 

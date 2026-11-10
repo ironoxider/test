@@ -8,6 +8,11 @@
 #
 # Settings come from /etc/av-display.conf (see av-display.conf). The folder is re-read every
 # time round, so files you add or delete show up on the next pass without restarting.
+#
+# What is shown, first match wins: a plugged-in USB stick, then the local copy of the network
+# folder (NETWORK_SHARE), then MEDIA_DIR.
+#
+#   sudo av-display --sync    copy the network folder now and show what happened (for testing)
 
 CONF=/etc/av-display.conf
 MEDIA_DIR=/home/pi/media
@@ -16,13 +21,22 @@ SHUFFLE=no
 AUDIO=hdmi
 USE_USB=yes
 USB_FOLDER=slideshow
+NETWORK_SHARE=
+NETWORK_USER=
+NETWORK_PASSWORD=
+NETWORK_DOMAIN=
+NETWORK_OPTIONS=
+NETWORK_SYNC_MINUTES=15
 [ -f "$CONF" ] && . "$CONF"
 
 TTY=${AV_TTY:-/dev/tty1}
 USB_MOUNT=/mnt/av-display-usb
 IMAGE_EXT="jpg jpeg png gif bmp"
 VIDEO_EXT="mp4 m4v mov mkv avi h264 mpg mpeg"
+NET_MOUNT=/mnt/av-display-share
+NET_COPY=/var/lib/av-display/network
 FBI_PID=
+SYNC_PID=
 
 log() { echo "av-display: $*" >&2; }
 
@@ -86,6 +100,49 @@ play_video() {
     screen_setup
 }
 
+sync_network() {
+    # Copy the network folder to the SD card. Playing from the local copy keeps videos smooth
+    # on a B+ (its network is slow) and keeps the slideshow going when the network is down.
+    # Only changed files are copied; files deleted from the share are deleted from the copy.
+    local creds=/run/av-display.credentials opts=ro,uid=0,gid=0
+    mkdir -p "$NET_MOUNT" "$NET_COPY"
+    mountpoint -q "$NET_MOUNT" && umount -l "$NET_MOUNT"
+    if [ -n "$NETWORK_USER" ]; then
+        ( umask 077
+          printf 'username=%s\npassword=%s\n' "$NETWORK_USER" "$NETWORK_PASSWORD" >"$creds"
+          [ -n "$NETWORK_DOMAIN" ] && printf 'domain=%s\n' "$NETWORK_DOMAIN" >>"$creds" )
+        opts+=",credentials=$creds"
+    else
+        opts+=",guest"
+    fi
+    [ -n "$NETWORK_OPTIONS" ] && opts+=",$NETWORK_OPTIONS"
+
+    local err
+    if ! err=$(mount -t cifs "$NETWORK_SHARE" "$NET_MOUNT" -o "$opts" 2>&1); then
+        log "could not open network folder $NETWORK_SHARE: $err"
+        rm -f "$creds"
+        return 1
+    fi
+    rm -f "$creds"
+    # --modify-window: Windows/NAS file times are only accurate to 2 seconds.
+    # Hidden files are skipped; rsync's own temporary files are hidden, so a half-copied
+    # video is never shown.
+    if err=$(rsync -rt --delete --modify-window=2 --exclude='.*' --stats \
+             "$NET_MOUNT/" "$NET_COPY/" 2>&1); then
+        log "network folder copied: $(echo "$err" | grep -E 'Number of (regular )?files transferred' | head -1)"
+    else
+        log "copying the network folder failed (is the SD card full?): $(echo "$err" | tail -3)"
+    fi
+    umount -l "$NET_MOUNT"
+}
+
+sync_loop() {
+    while true; do
+        sync_network
+        sleep $(( NETWORK_SYNC_MINUTES * 60 ))
+    done
+}
+
 pick_folder() {
     # A USB stick with a folder called "slideshow" (or files at the top) wins over MEDIA_DIR.
     if [ "$USE_USB" = yes ]; then
@@ -103,6 +160,9 @@ pick_folder() {
             if [ -d "$USB_MOUNT/$USB_FOLDER" ]; then echo "$USB_MOUNT/$USB_FOLDER"; return; fi
             echo "$USB_MOUNT"; return
         fi
+    fi
+    if [ -n "$NETWORK_SHARE" ] && [ -n "$(ls -A "$NET_COPY" 2>/dev/null)" ]; then
+        echo "$NET_COPY"; return
     fi
     echo "$MEDIA_DIR"
 }
@@ -129,7 +189,18 @@ play_list() {   # plays the list once: each run of photos in one fbi, videos in 
     [ ${#photos[@]} -gt 0 ] && show_images "${photos[@]}"
 }
 
-trap 'stop_image; setterm --default --cursor on >"$TTY" 2>/dev/null; clear >"$TTY" 2>/dev/null; exit 0' TERM INT
+if [ "$1" = --sync ]; then
+    [ -n "$NETWORK_SHARE" ] || { echo "NETWORK_SHARE is not set in $CONF"; exit 1; }
+    sync_network && ls -lh "$NET_COPY"
+    exit
+fi
+
+if [ -n "$NETWORK_SHARE" ]; then
+    sync_loop &
+    SYNC_PID=$!
+fi
+
+trap '[ -n "$SYNC_PID" ] && kill "$SYNC_PID" 2>/dev/null; stop_image; setterm --default --cursor on >"$TTY" 2>/dev/null; clear >"$TTY" 2>/dev/null; exit 0' TERM INT
 screen_setup
 
 LOOP_LIST=   # the photo list the looping fbi is showing (photos-only folders)

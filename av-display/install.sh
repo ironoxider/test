@@ -9,7 +9,7 @@ HOME_DIR=$(getent passwd "$USER_NAME" | cut -d: -f6)
 
 echo "== Installing programs"
 apt-get update
-apt-get install -y fbi
+apt-get install -y fbi cifs-utils rsync
 if apt-cache show omxplayer >/dev/null 2>&1; then
     apt-get install -y omxplayer
 else
@@ -22,9 +22,15 @@ echo "== Installing AV Display"
 install -m 755 av-display.sh /usr/local/bin/av-display
 if [ -f /etc/av-display.conf ]; then
     echo "Keeping your existing /etc/av-display.conf"
+    if ! grep -q '^NETWORK_SHARE=' /etc/av-display.conf; then
+        sed -n '/^# ---- Network folder/,$p' av-display.conf >>/etc/av-display.conf
+        echo "Added the network folder settings to /etc/av-display.conf"
+    fi
 else
     sed "s#/home/pi/media#$HOME_DIR/media#" av-display.conf >/etc/av-display.conf
 fi
+# Root-only: it can hold the network folder password.
+chmod 600 /etc/av-display.conf
 mkdir -p "$HOME_DIR/media"
 chown "$USER_NAME": "$HOME_DIR/media"
 
