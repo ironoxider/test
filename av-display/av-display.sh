@@ -105,6 +105,9 @@ sync_network() {
     # on a B+ (its network is slow) and keeps the slideshow going when the network is down.
     # Only changed files are copied; files deleted from the share are deleted from the copy.
     local creds=/run/av-display.credentials opts=ro,uid=0,gid=0
+    # Accept the share written any common way: smb://server/share, \\server\share, //server/share
+    local share
+    share=$(printf '%s' "$NETWORK_SHARE" | sed -E 's#\\#/#g; s#^[Ss][Mm][Bb]:##; s#^/*#//#; s#/+$##')
     mkdir -p "$NET_MOUNT" "$NET_COPY"
     mountpoint -q "$NET_MOUNT" && umount -l "$NET_MOUNT"
     if [ -n "$NETWORK_USER" ]; then
@@ -118,8 +121,8 @@ sync_network() {
     [ -n "$NETWORK_OPTIONS" ] && opts+=",$NETWORK_OPTIONS"
 
     local err
-    if ! err=$(mount -t cifs "$NETWORK_SHARE" "$NET_MOUNT" -o "$opts" 2>&1); then
-        log "could not open network folder $NETWORK_SHARE: $err"
+    if ! err=$(mount -t cifs "$share" "$NET_MOUNT" -o "$opts" 2>&1); then
+        log "could not open network folder $share: $err"
         rm -f "$creds"
         return 1
     fi
